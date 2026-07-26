@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://homelinq.co.uk/sitemap.xml

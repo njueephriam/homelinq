@@ -1,0 +1,4 @@
+# HomeLinq Netlify redirects
+/app    /app.html   200
+/app/*  /app.html   200
+/moti    /moti.html   200

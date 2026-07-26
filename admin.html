@@ -1,0 +1,2756 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HomeLinq Admin — Platform Dashboard</title>
+  <meta name="robots" content="noindex, nofollow">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root{--teal:#0D9488;--teal-light:#14B8A6;--navy:#0F172A;--dark:#1E293B;--card:#fff;--bg:#F1F5F9;--text:#1E293B;--muted:#64748B;--green:#10B981;--red:#EF4444;--orange:#F59E0B;--blue:#3B82F6;--radius:12px;--shadow:0 1px 3px rgba(0,0,0,.1)}
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+
+    /* Login */
+    .login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--navy),var(--dark))}
+    .login-box{background:#fff;border-radius:16px;padding:40px;width:100%;max-width:400px;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+    .login-box h1{font-size:24px;margin-bottom:4px;color:var(--navy)}
+    .login-box p{color:var(--muted);font-size:14px;margin-bottom:24px}
+    .login-box .badge{display:inline-block;background:var(--teal);color:#fff;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;margin-bottom:16px;letter-spacing:.5px}
+    .login-input{width:100%;padding:12px 16px;border:2px solid #E2E8F0;border-radius:var(--radius);font-size:15px;margin-bottom:12px;transition:border-color .2s}
+    .login-input:focus{outline:none;border-color:var(--teal)}
+    .login-btn{width:100%;padding:14px;background:var(--teal);color:#fff;border:none;border-radius:var(--radius);font-size:16px;font-weight:700;cursor:pointer;transition:background .2s}
+    .login-btn:hover{background:var(--teal-light)}
+    .login-error{color:var(--red);font-size:13px;margin-top:8px;display:none}
+
+    /* Layout */
+    .topbar{background:#fff;border-bottom:1px solid #E2E8F0;padding:16px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+    .topbar h1{font-size:20px;color:var(--navy)}
+    .topbar h1 span{color:var(--teal)}
+    .topbar-right{display:flex;align-items:center;gap:16px}
+    .topbar-user{font-size:13px;color:var(--muted)}
+    .topbar-btn{padding:8px 16px;border:2px solid #E2E8F0;border-radius:var(--radius);background:#fff;cursor:pointer;font-size:13px;font-weight:600;color:var(--muted);transition:all .2s}
+    .topbar-btn:hover{border-color:var(--red);color:var(--red)}
+    .refresh-btn{padding:8px 16px;border:2px solid var(--teal);border-radius:var(--radius);background:#fff;cursor:pointer;font-size:13px;font-weight:600;color:var(--teal);transition:all .2s}
+    .refresh-btn:hover{background:var(--teal);color:#fff}
+
+    .container{max-width:1200px;margin:0 auto;padding:24px}
+
+    /* Stats */
+    .stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
+    .stat-card{background:var(--card);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow)}
+    .stat-card .label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-weight:600}
+    .stat-card .value{font-size:32px;font-weight:800;margin-top:4px;color:var(--navy)}
+    .stat-card .sub{font-size:13px;color:var(--muted);margin-top:4px}
+    .stat-card.teal .value{color:var(--teal)}
+    .stat-card.green .value{color:var(--green)}
+    .stat-card.blue .value{color:var(--blue)}
+    .stat-card.orange .value{color:var(--orange)}
+
+    /* Cards */
+    .card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:24px;overflow:hidden}
+    .card-header{padding:20px 24px;border-bottom:1px solid #E2E8F0;display:flex;align-items:center;justify-content:space-between}
+    .card-header h2{font-size:18px;color:var(--navy)}
+    .card-header .count{background:var(--bg);padding:4px 12px;border-radius:20px;font-size:13px;font-weight:600;color:var(--muted)}
+    .card-body{padding:24px}
+
+    /* Table */
+    .table-wrap{overflow-x:auto}
+    table{width:100%;border-collapse:collapse;font-size:14px}
+    th{text-align:left;padding:12px 16px;background:var(--bg);color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.5px;font-weight:600;white-space:nowrap}
+    td{padding:12px 16px;border-bottom:1px solid #F1F5F9;vertical-align:middle}
+    tr:last-child td{border-bottom:none}
+    tr:hover td{background:#F8FAFC}
+    .eng-name{font-weight:700;color:var(--navy)}
+    .eng-email{color:var(--muted);font-size:13px}
+
+    /* Badges */
+    .badge-active{display:inline-block;padding:4px 10px;border-radius:20px;font-size:11px;font-weight:700;background:#ECFDF5;color:#059669}
+    .badge-pending{display:inline-block;padding:4px 10px;border-radius:20px;font-size:11px;font-weight:700;background:#FEF3C7;color:#D97706}
+    .badge-inactive{display:inline-block;padding:4px 10px;border-radius:20px;font-size:11px;font-weight:700;background:#FEE2E2;color:#DC2626}
+
+    /* Area chart */
+    .area-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+    .area-card{background:var(--bg);border-radius:var(--radius);padding:16px;text-align:center}
+    .area-card .area-name{font-weight:700;font-size:15px;color:var(--navy);margin-bottom:4px}
+    .area-card .area-count{font-size:28px;font-weight:800;color:var(--teal)}
+    .area-card .area-label{font-size:12px;color:var(--muted)}
+
+    /* Data mode indicator */
+    .data-mode{display:inline-block;padding:4px 12px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:.5px}
+    .data-mode.live{background:#ECFDF5;color:#059669}
+
+    /* Approval cards */
+    .approval-card{background:#fff;border:2px solid #FDE68A;border-radius:var(--radius);padding:20px;margin-bottom:16px;display:flex;align-items:flex-start;gap:20px;transition:border-color .2s}
+    .approval-card:hover{border-color:var(--orange)}
+    .approval-avatar{width:48px;height:48px;border-radius:50%;background:var(--orange);color:#fff;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;flex-shrink:0}
+    .approval-info{flex:1;min-width:0}
+    .approval-info h3{font-size:16px;color:var(--navy);margin-bottom:2px}
+    .approval-info .meta{font-size:13px;color:var(--muted);margin-bottom:8px}
+    .approval-detail{display:inline-flex;align-items:center;gap:6px;background:var(--bg);padding:6px 12px;border-radius:8px;font-size:13px;margin-right:8px;margin-bottom:6px}
+    .approval-detail strong{color:var(--navy)}
+    .approval-actions{display:flex;gap:8px;flex-shrink:0;align-items:center}
+    .btn-approve{padding:10px 20px;background:var(--green);color:#fff;border:none;border-radius:var(--radius);font-size:13px;font-weight:700;cursor:pointer;transition:opacity .2s}
+    .btn-approve:hover{opacity:.85}
+    .btn-reject{padding:10px 20px;background:#fff;color:var(--red);border:2px solid var(--red);border-radius:var(--radius);font-size:13px;font-weight:700;cursor:pointer;transition:all .2s}
+    .btn-reject:hover{background:var(--red);color:#fff}
+    .pending-alert{background:linear-gradient(135deg,#FEF3C7,#FDE68A);border-radius:var(--radius);padding:16px 20px;margin-bottom:24px;display:flex;align-items:center;gap:12px;font-size:14px;font-weight:600;color:#92400E}
+    .pending-alert .pulse{width:12px;height:12px;border-radius:50%;background:var(--orange);animation:pulse 1.5s ease-in-out infinite}
+    @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.3)}}
+
+    /* Loading */
+    .loading{text-align:center;padding:60px 20px}
+    .loading .spinner{width:40px;height:40px;border:4px solid #E2E8F0;border-top:4px solid var(--teal);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 16px}
+    @keyframes spin{to{transform:rotate(360deg)}}
+
+    /* Responsive */
+    @media(max-width:768px){
+      .stats-row{grid-template-columns:repeat(2,1fr)}
+      .container{padding:16px}
+      .topbar{padding:12px 16px}
+      .topbar h1{font-size:16px}
+      .area-grid{grid-template-columns:repeat(2,1fr)}
+      .card-body{padding:16px}
+      th,td{padding:10px 12px}
+    }
+    @media(max-width:480px){
+      .stats-row{grid-template-columns:1fr}
+      .topbar-user{display:none}
+    }
+
+    /* Tabs */
+    .tab-nav{display:flex;gap:4px;background:#F1F5F9;border-radius:10px;padding:3px}
+    .tab-btn{padding:8px 18px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;background:transparent;color:var(--muted);transition:all .2s}
+    .tab-btn.active{background:#fff;color:var(--navy);box-shadow:0 1px 3px rgba(0,0,0,.1)}
+    .tab-btn:hover:not(.active){color:var(--navy)}
+
+    /* Sales pipeline */
+    .pipe-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:20px}
+    .pipe-stat{background:var(--card);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);text-align:center}
+    .pipe-stat .ps-val{font-size:28px;font-weight:800}
+    .pipe-stat .ps-lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-top:2px}
+    .pipe-stat.new .ps-val{color:var(--blue)}
+    .pipe-stat.contacted .ps-val{color:var(--orange)}
+    .pipe-stat.replied .ps-val{color:var(--green)}
+    .pipe-stat.signedup .ps-val{color:var(--teal)}
+    .pipe-stat.due .ps-val{color:var(--red)}
+
+    .action-bar{display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;align-items:center}
+    .action-bar .search-input{flex:1;min-width:200px;padding:10px 14px;border:2px solid #E2E8F0;border-radius:var(--radius);font-size:14px}
+    .action-bar .search-input:focus{outline:none;border-color:var(--teal)}
+    .action-bar select{padding:10px 14px;border:2px solid #E2E8F0;border-radius:var(--radius);font-size:13px;font-weight:600;background:#fff;cursor:pointer}
+    .btn-sm{padding:8px 16px;border:none;border-radius:var(--radius);font-size:13px;font-weight:700;cursor:pointer;transition:all .2s}
+    .btn-teal{background:var(--teal);color:#fff}.btn-teal:hover{background:var(--teal-light)}
+    .btn-blue{background:var(--blue);color:#fff}.btn-blue:hover{opacity:.85}
+    .btn-green{background:var(--green);color:#fff}.btn-green:hover{opacity:.85}
+    .btn-outline{background:#fff;color:var(--navy);border:2px solid #E2E8F0}.btn-outline:hover{border-color:var(--teal);color:var(--teal)}
+    .btn-danger{background:#fff;color:var(--red);border:2px solid #FEE2E2}.btn-danger:hover{background:#FEE2E2}
+
+    .lead-row{display:flex;align-items:center;gap:16px;padding:14px 16px;border-bottom:1px solid #F1F5F9;transition:background .15s}
+    .lead-row:hover{background:#F8FAFC}
+    .lead-row:last-child{border-bottom:none}
+    .lead-info{flex:1;min-width:0}
+    .lead-name{font-weight:700;color:var(--navy);font-size:15px}
+    .lead-meta{font-size:13px;color:var(--muted);margin-top:2px}
+    .lead-actions{display:flex;gap:6px;flex-shrink:0}
+
+    .badge-new{display:inline-block;padding:4px 10px;border-radius:20px;font-size:11px;font-weight:700;background:#DBEAFE;color:#1D4ED8}
+    .badge-contacted{display:inline-block;padding:4px 10px;border-radius:20px;font-size:11px;font-weight:700;background:#FEF3C7;color:#D97706}
+    .badge-replied{display:inline-block;padding:4px 10px;border-radius:20px;font-size:11px;font-weight:700;background:#ECFDF5;color:#059669}
+    .badge-signed{display:inline-block;padding:4px 10px;border-radius:20px;font-size:11px;font-weight:700;background:#F0FDFA;color:#0D9488}
+    .badge-declined{display:inline-block;padding:4px 10px;border-radius:20px;font-size:11px;font-weight:700;background:#FEE2E2;color:#DC2626}
+
+    /* Modal overlay */
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:1000}
+    .modal-box{background:#fff;border-radius:16px;padding:28px;width:100%;max-width:500px;box-shadow:0 20px 60px rgba(0,0,0,.3);max-height:90vh;overflow-y:auto}
+    .modal-box h2{margin-bottom:16px;font-size:20px;color:var(--navy)}
+    .modal-box label{display:block;font-size:13px;font-weight:600;color:var(--muted);margin-bottom:4px;margin-top:12px}
+    .modal-box input,.modal-box textarea,.modal-box select{width:100%;padding:10px 12px;border:2px solid #E2E8F0;border-radius:var(--radius);font-size:14px;font-family:inherit}
+    .modal-box input:focus,.modal-box textarea:focus{outline:none;border-color:var(--teal)}
+    .modal-box textarea{resize:vertical;min-height:80px}
+    .modal-actions{display:flex;gap:8px;margin-top:20px}
+    .csv-drop{border:2px dashed #E2E8F0;border-radius:var(--radius);padding:32px;text-align:center;color:var(--muted);cursor:pointer;transition:all .2s}
+    .csv-drop:hover{border-color:var(--teal);color:var(--teal)}
+
+    /* Outreach history */
+    .oh-item{padding:10px 14px;border-left:3px solid #E2E8F0;margin-bottom:8px;background:#FAFBFC;border-radius:0 8px 8px 0}
+    .oh-item.sent{border-left-color:var(--green)}
+    .oh-item.failed{border-left-color:var(--red)}
+    .oh-item.pending{border-left-color:var(--orange)}
+    .oh-date{font-size:12px;color:var(--muted)}
+    .oh-subject{font-weight:600;font-size:14px;color:var(--navy)}
+
+    .followup-banner{background:linear-gradient(135deg,#FEF3C7,#FDE68A);border-radius:var(--radius);padding:14px 20px;margin-bottom:20px;display:flex;align-items:center;gap:12px;font-size:14px;font-weight:600;color:#92400E}
+
+    /* Draft review modal — wider for email preview */
+    .draft-modal{max-width:680px}
+    .draft-subject{width:100%;padding:10px 14px;border:2px solid #E2E8F0;border-radius:var(--radius);font-size:15px;font-weight:600;font-family:inherit;margin-bottom:12px}
+    .draft-subject:focus{outline:none;border-color:var(--teal)}
+    .draft-preview{border:1px solid #E2E8F0;border-radius:var(--radius);padding:20px;max-height:400px;overflow-y:auto;background:#FAFBFC;margin-bottom:12px}
+    .draft-preview img{max-width:100%}
+    .draft-label{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+    .draft-moti-badge{display:inline-flex;align-items:center;gap:6px;background:linear-gradient(135deg,#0D9488,#14B8A6);color:#fff;padding:4px 12px;border-radius:20px;font-size:11px;font-weight:700;margin-bottom:16px}
+    .draft-loading{text-align:center;padding:40px 20px}
+    .draft-loading .spinner{width:32px;height:32px;border:3px solid #E2E8F0;border-top:3px solid var(--teal);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 12px}
+    .draft-edit-area{width:100%;min-height:200px;padding:12px;border:2px solid #E2E8F0;border-radius:var(--radius);font-size:13px;font-family:monospace;resize:vertical;display:none}
+    .draft-edit-area:focus{outline:none;border-color:var(--teal)}
+    .btn-purple{background:#7C3AED;color:#fff}.btn-purple:hover{opacity:.85}
+
+    /* Discover leads */
+    .discover-section{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:24px;margin-bottom:24px;display:none}
+    .discover-section.open{display:block}
+    .discover-section h3{font-size:18px;font-weight:800;color:var(--navy);margin-bottom:16px}
+    .discover-row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px}
+    .discover-row .field{flex:1;min-width:160px}
+    .discover-row .field label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.4px}
+    .discover-row .field input,.discover-row .field select{width:100%;padding:10px 12px;border:2px solid #E2E8F0;border-radius:var(--radius);font-size:14px}
+    .discover-row .field input:focus,.discover-row .field select:focus{outline:none;border-color:var(--teal)}
+    .discover-hint{font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:16px}
+    .discover-divider{text-align:center;color:var(--muted);font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin:20px 0;position:relative}
+    .discover-divider::before,.discover-divider::after{content:'';position:absolute;top:50%;width:calc(50% - 50px);height:1px;background:#E2E8F0}
+    .discover-divider::before{left:0}
+    .discover-divider::after{right:0}
+    .discover-textarea{width:100%;min-height:120px;padding:12px;border:2px solid #E2E8F0;border-radius:var(--radius);font-size:13px;font-family:'SFMono-Regular',monospace;resize:vertical;line-height:1.6}
+    .discover-textarea:focus{outline:none;border-color:var(--teal)}
+    .discover-textarea::placeholder{color:#CBD5E1}
+    .discover-results{margin-top:20px;border-top:1px solid #E2E8F0;padding-top:16px}
+    .discover-lead-row{display:flex;align-items:center;gap:12px;padding:10px 12px;border-bottom:1px solid #F1F5F9;font-size:14px}
+    .discover-lead-row:hover{background:#F8FAFC}
+    .discover-lead-row input[type=checkbox]{width:18px;height:18px;flex-shrink:0;accent-color:var(--teal)}
+    .discover-lead-info{flex:1;min-width:0}
+    .discover-lead-name{font-weight:700;color:var(--navy)}
+    .discover-lead-meta{font-size:12px;color:var(--muted);margin-top:1px}
+    .discover-loading{text-align:center;padding:32px}
+    .discover-loading .spinner{width:32px;height:32px;border:3px solid #E2E8F0;border-top:3px solid var(--teal);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 12px}
+
+    /* Sales sub-tabs */
+    .sales-tabs{display:flex;gap:6px;margin-bottom:20px;flex-wrap:wrap;align-items:center}
+    .sales-tab{padding:8px 18px;border:2px solid #E2E8F0;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;background:#fff;color:var(--muted);transition:all .2s}
+    .sales-tab.active{background:var(--teal);color:#fff;border-color:var(--teal)}
+    .sales-tab:hover:not(.active){border-color:var(--teal);color:var(--teal)}
+    .sales-tab .tab-count{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;background:rgba(255,255,255,.3);border-radius:10px;font-size:11px;font-weight:700;margin-left:4px;padding:0 6px}
+    .sales-tab:not(.active) .tab-count{background:#F1F5F9}
+    .research-card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:24px;margin-bottom:20px}
+    .research-card h3{font-size:18px;font-weight:800;color:var(--navy);margin-bottom:4px}
+    .research-card .rc-meta{font-size:13px;color:var(--muted);margin-bottom:16px}
+    .rc-fit{display:inline-block;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:700;margin-left:8px}
+    .rc-fit.good{background:#ECFDF5;color:#059669}
+    .rc-fit.ok{background:#FEF3C7;color:#D97706}
+    .rc-fit.poor{background:#FEE2E2;color:#DC2626}
+    .rc-section{margin-bottom:14px}
+    .rc-section-title{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+    .rc-list{padding-left:20px;font-size:14px;line-height:1.8;color:var(--text)}
+    .rc-warning{background:#FEF3C7;border:1px solid #FDE68A;border-radius:8px;padding:10px 14px;font-size:13px;color:#92400E;margin-bottom:6px}
+    .draft-card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:24px;margin-bottom:20px}
+    .draft-card .dc-to{font-size:13px;color:var(--muted);margin-bottom:4px}
+    .draft-card .dc-subject{font-size:16px;font-weight:700;color:var(--navy);margin-bottom:12px}
+    .draft-card .dc-body{border:1px solid #E2E8F0;border-radius:var(--radius);padding:16px;max-height:300px;overflow-y:auto;background:#FAFBFC;margin-bottom:16px;font-size:14px;line-height:1.6}
+    .outbox-item{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 24px;margin-bottom:12px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+    .outbox-item .oi-info{flex:1;min-width:0}
+    .outbox-item .oi-name{font-weight:700;color:var(--navy);font-size:15px}
+    .outbox-item .oi-subject{font-size:14px;color:var(--text);margin-top:2px}
+    .outbox-item .oi-meta{font-size:12px;color:var(--muted);margin-top:4px}
+    .lc-item{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 24px;margin-bottom:12px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+    .lc-item .lc-info{flex:1;min-width:0}
+    .lc-item .lc-name{font-weight:700;color:var(--navy);font-size:15px}
+    .lc-item .lc-meta{font-size:13px;color:var(--muted);margin-top:2px}
+    .funnel-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #F1F5F9;font-size:14px}
+    .funnel-label{width:100px;font-weight:600;color:var(--navy)}
+    .funnel-bar-wrap{flex:1;height:24px;background:#F1F5F9;border-radius:12px;overflow:hidden}
+    .funnel-bar{height:100%;background:linear-gradient(90deg,var(--teal),var(--teal-light));border-radius:12px;transition:width .5s ease}
+    .funnel-val{width:40px;text-align:right;font-weight:800;color:var(--navy)}
+    .funnel-pct{width:50px;text-align:right;font-size:13px;font-weight:600}
+    .pill-row{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap}
+    .pill{padding:6px 14px;border:2px solid #E2E8F0;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;background:#fff;color:var(--muted);transition:all .2s}
+    .pill.active{background:var(--teal);color:#fff;border-color:var(--teal)}
+    .pill:hover:not(.active){border-color:var(--teal);color:var(--teal)}
+    .insight-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:24px}
+    .insight-card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px}
+    .insight-card h4{font-size:14px;font-weight:700;color:var(--navy);margin-bottom:12px}
+    .btn-orange{background:var(--orange);color:#fff}.btn-orange:hover{opacity:.85}
+  </style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+// ===== CONFIG =====
+var SUPABASE_URL = 'https://uphlvpatjhdnqcsytvaz.supabase.co';
+var SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVwaGx2cGF0amhkbnFjc3l0dmF6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg0MzQ4ODIsImV4cCI6MjA5NDAxMDg4Mn0.kMyf6X84S1PEX88mLCTpnvtB_KeVri9Dxs8SjRqkwyQ';
+var ADMIN_EMAIL = 'njueephriam8@gmail.com';
+var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+var currentUser = null;
+var dataMode = 'live';
+var dashData = {engineers:[], profiles:[], customers:[], jobs:[], invoices:[], marketplace:[], quotes:[], certificates:[]};
+var salesData = {leads:[], outreach:[]};
+var queryErrors = [];
+var lastRefresh = null;
+var currentAdminTab = 'dashboard';
+var salesFilter = 'all';
+var salesSearch = '';
+var salesSubTab = 'leads';
+var outboxFilter = 'all';
+var lcFilter = 'all';
+
+// ===== AUTH =====
+function doAdminLogin() {
+  var emailEl = document.getElementById('admin-email');
+  var passEl = document.getElementById('admin-pass');
+  var errEl = document.getElementById('login-error');
+  if (!emailEl || !passEl) return;
+  var email = emailEl.value.trim().toLowerCase();
+  var pass = passEl.value;
+  if (!email || !pass) { errEl.textContent = 'Please enter email and password'; errEl.style.display = 'block'; return; }
+  if (email !== ADMIN_EMAIL) { errEl.textContent = 'Access denied — admin only'; errEl.style.display = 'block'; return; }
+  errEl.style.display = 'none';
+  document.getElementById('app').innerHTML = '<div class="loading"><div class="spinner"></div><div style="color:' + 'var(--muted)">Signing in...</div></div>';
+  sb.auth.signInWithPassword({email: email, password: pass}).then(function(res) {
+    if (res.error) { currentUser = null; renderLogin(res.error.message); return; }
+    currentUser = res.data.user;
+    sessionStorage.setItem(ADMIN_AUTH_KEY, 'true');
+    loadDashboard();
+  });
+}
+
+function doAdminLogout() {
+  sessionStorage.removeItem(ADMIN_AUTH_KEY);
+  sb.auth.signOut().then(function() {
+    currentUser = null;
+    dataMode = 'live';
+    dashData = {engineers:[], profiles:[], customers:[], jobs:[], invoices:[], marketplace:[], quotes:[], certificates:[]};
+    salesData = {leads:[], outreach:[]};
+    currentAdminTab = 'dashboard';
+    renderLogin();
+  });
+}
+
+// ===== DATA LOADING =====
+function loadDashboard() {
+  document.getElementById('app').innerHTML = '<div class="loading"><div class="spinner"></div><div style="color:var(--muted)">Connecting to Supabase...</div></div>';
+  var loaded = 0;
+  var total = 10;
+  queryErrors = [];
+  dashData = {engineers:[], profiles:[], customers:[], jobs:[], invoices:[], marketplace:[], quotes:[], certificates:[]};
+  salesData = {leads:[], outreach:[]};
+
+  function checkDone() {
+    loaded++;
+    if (loaded >= total) {
+      dataMode = 'live';
+      lastRefresh = new Date();
+      renderPage();
+    }
+  }
+
+  sb.from('engineers').select('*').then(function(res) {
+    if (res.error) { queryErrors.push('engineers: ' + res.error.message); }
+    else { dashData.engineers = res.data || []; }
+    checkDone();
+  });
+  sb.from('profiles').select('id,role,stripe_account_id,stripe_status,payouts_enabled,created_at').then(function(res) {
+    if (res.error) { queryErrors.push('profiles: ' + res.error.message); }
+    else { dashData.profiles = res.data || []; }
+    checkDone();
+  });
+  sb.from('customers').select('*').then(function(res) {
+    if (res.error) { queryErrors.push('customers: ' + res.error.message); }
+    else { dashData.customers = res.data || []; }
+    checkDone();
+  });
+  sb.from('jobs').select('*').then(function(res) {
+    if (res.error) { queryErrors.push('jobs: ' + res.error.message); }
+    else { dashData.jobs = res.data || []; }
+    checkDone();
+  });
+  sb.from('invoices').select('*').then(function(res) {
+    if (res.error) { queryErrors.push('invoices: ' + res.error.message); }
+    else { dashData.invoices = res.data || []; }
+    checkDone();
+  });
+  sb.from('marketplace_jobs').select('*').then(function(res) {
+    if (res.error) { queryErrors.push('marketplace: ' + res.error.message); }
+    else { dashData.marketplace = res.data || []; }
+    checkDone();
+  });
+  sb.from('quotes').select('*').then(function(res) {
+    if (res.error) { queryErrors.push('quotes: ' + res.error.message); }
+    else { dashData.quotes = res.data || []; }
+    checkDone();
+  });
+  sb.from('cp12_certificates').select('*').then(function(res) {
+    if (res.error) { queryErrors.push('certificates: ' + res.error.message); }
+    else { dashData.certificates = res.data || []; }
+    checkDone();
+  });
+  sb.from('leads').select('*').order('created_at', {ascending: false}).then(function(res) {
+    if (res.error) { queryErrors.push('leads: ' + res.error.message); }
+    else { salesData.leads = res.data || []; }
+    checkDone();
+  });
+  sb.from('outreach_emails').select('*').order('created_at', {ascending: false}).then(function(res) {
+    if (res.error) { queryErrors.push('outreach: ' + res.error.message); }
+    else { salesData.outreach = res.data || []; }
+    checkDone();
+  });
+}
+
+// ===== HELPERS =====
+function fmtDate(d) {
+  if (!d) return '—';
+  var dt = new Date(d);
+  return dt.toLocaleDateString('en-GB', {day:'numeric', month:'short', year:'numeric'});
+}
+function fmtDateTime(d) {
+  if (!d) return '—';
+  var dt = new Date(d);
+  return dt.toLocaleDateString('en-GB', {day:'numeric', month:'short', year:'numeric'}) + ' ' + dt.toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit'});
+}
+function daysSince(d) {
+  if (!d) return 0;
+  return Math.floor((Date.now() - new Date(d).getTime()) / 86400000);
+}
+function postcodeArea(pc) {
+  if (!pc) return 'Unknown';
+  var m = pc.trim().toUpperCase().match(/^([A-Z]{1,2})/);
+  return m ? m[1] : 'Unknown';
+}
+var UK_PC_NAMES={AB:'Aberdeen',AL:'St Albans',B:'Birmingham',BA:'Bath',BB:'Blackburn',BD:'Bradford',BH:'Bournemouth',BL:'Bolton',BN:'Brighton',BR:'Bromley',BS:'Bristol',BT:'Belfast',CA:'Carlisle',CB:'Cambridge',CF:'Cardiff',CH:'Chester',CM:'Chelmsford',CO:'Colchester',CR:'Croydon',CT:'Canterbury',CV:'Coventry',CW:'Crewe',DA:'Dartford',DD:'Dundee',DE:'Derby',DG:'Dumfries',DH:'Durham',DL:'Darlington',DN:'Doncaster',DT:'Dorchester',DY:'Dudley',E:'East London',EC:'East Central London',EH:'Edinburgh',EN:'Enfield',EX:'Exeter',FK:'Falkirk',FY:'Blackpool',G:'Glasgow',GL:'Gloucester',GU:'Guildford',HA:'Harrow',HD:'Huddersfield',HG:'Harrogate',HP:'Hemel Hempstead',HR:'Hereford',HU:'Hull',HX:'Halifax',IG:'Ilford',IP:'Ipswich',IV:'Inverness',KA:'Kilmarnock',KT:'Kingston upon Thames',KW:'Kirkwall',KY:'Kirkcaldy',L:'Liverpool',LA:'Lancaster',LE:'Leicester',LL:'Llandudno',LN:'Lincoln',LS:'Leeds',LU:'Luton',M:'Manchester',ME:'Medway',MK:'Milton Keynes',ML:'Motherwell',N:'North London',NE:'Newcastle upon Tyne',NG:'Nottingham',NN:'Northampton',NP:'Newport',NR:'Norwich',NW:'North West London',OL:'Oldham',OX:'Oxford',PA:'Paisley',PE:'Peterborough',PH:'Perth',PL:'Plymouth',PO:'Portsmouth',PR:'Preston',RG:'Reading',RH:'Redhill',RM:'Romford',S:'Sheffield',SA:'Swansea',SE:'South East London',SG:'Stevenage',SK:'Stockport',SL:'Slough',SM:'Sutton',SN:'Swindon',SO:'Southampton',SP:'Salisbury',SR:'Sunderland',SS:'Southend-on-Sea',ST:'Stoke-on-Trent',SW:'South West London',SY:'Shrewsbury',TA:'Taunton',TD:'Galashiels',TF:'Telford',TN:'Tonbridge',TQ:'Torquay',TR:'Truro',TS:'Cleveland',TW:'Twickenham',UB:'Southall/Uxbridge',W:'West London',WA:'Warrington',WC:'West Central London',WD:'Watford',WF:'Wakefield',WN:'Wigan',WR:'Worcester',WS:'Walsall',WV:'Wolverhampton',YO:'York',ZE:'Lerwick'};
+function areaLabel(code){return UK_PC_NAMES[code]?code+' — '+UK_PC_NAMES[code]:code}
+function getStripeInfo(engId) {
+  for (var i = 0; i < dashData.profiles.length; i++) {
+    if (dashData.profiles[i].id === engId) return dashData.profiles[i];
+  }
+  return {stripe_status:'unknown', payouts_enabled:false};
+}
+
+// ===== EMAIL HELPER =====
+var EDGE_URL = SUPABASE_URL + '/functions/v1';
+
+// Email signature appended to ALL outreach emails
+var SALES_SIGNATURE = '<table cellpadding="0" cellspacing="0" border="0" style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;font-size:14px;color:#1E293B;max-width:480px;margin-top:28px;border-top:1px solid #E2E8F0;padding-top:20px">' +
+  '<tr><td style="padding-bottom:16px;border-bottom:2px solid #0D9488">' +
+  '<table cellpadding="0" cellspacing="0" border="0"><tr>' +
+  '<td style="vertical-align:middle;padding-right:16px">' +
+  '<div style="width:56px;height:56px;background:linear-gradient(135deg,#0D9488,#0F766E);border-radius:12px;text-align:center;line-height:56px">' +
+  '<span style="color:#fff;font-size:22px;font-weight:800;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif">H<span style="font-weight:400">L</span></span></div></td>' +
+  '<td style="vertical-align:middle">' +
+  '<div style="font-size:18px;font-weight:700;color:#0F172A;line-height:1.2">Home<span style="font-weight:400">Linq</span></div>' +
+  '<div style="font-size:13px;color:#0D9488;font-weight:600;margin-top:2px">Customer Support</div>' +
+  '</td></tr></table></td></tr>' +
+  '<tr><td style="padding-top:14px">' +
+  '<table cellpadding="0" cellspacing="0" border="0" style="font-size:13px;color:#475569">' +
+  '<tr><td style="padding:3px 0"><span style="color:#0D9488;font-weight:700;font-size:14px">&#9993;</span>&nbsp;&nbsp;<a href="mailto:sales@homelinq.co.uk" style="color:#0D9488;text-decoration:none;font-weight:600">sales@homelinq.co.uk</a></td></tr>' +
+  '<tr><td style="padding:3px 0"><span style="color:#0D9488;font-weight:700;font-size:14px">&#127760;</span>&nbsp;&nbsp;<a href="https://homelinq.co.uk" style="color:#0D9488;text-decoration:none;font-weight:600">homelinq.co.uk</a></td></tr>' +
+  '<tr><td style="padding:3px 0"><span style="color:#0D9488;font-weight:700;font-size:14px">&#128241;</span>&nbsp;&nbsp;<a href="https://homelinq.co.uk/app.html#customer" style="color:#64748B;text-decoration:none">Open the HomeLinq App</a></td></tr>' +
+  '</table></td></tr>' +
+  '<tr><td style="padding-top:16px"><table cellpadding="0" cellspacing="0" border="0"><tr>' +
+  '<td style="background:#0D9488;border-radius:6px;padding:8px 16px"><a href="https://homelinq.co.uk/app.html#customer" style="color:#fff;text-decoration:none;font-size:12px;font-weight:700;letter-spacing:0.3px">BOOK A GAS ENGINEER &rarr;</a></td>' +
+  '<td style="width:10px"></td>' +
+  '<td style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:6px;padding:8px 16px"><a href="https://homelinq.co.uk" style="color:#475569;text-decoration:none;font-size:12px;font-weight:600;letter-spacing:0.3px">VISIT WEBSITE</a></td>' +
+  '</tr></table></td></tr>' +
+  '<tr><td style="padding-top:16px">' +
+  '<div style="background:#F0FDF4;border:1px solid #D1FAE5;border-radius:8px;padding:10px 14px;font-size:11px;color:#065F46;line-height:1.5">' +
+  '<strong style="color:#047857">&#9989; Gas Safe Verified Engineers</strong> &middot; ' +
+  '<strong style="color:#047857">&#128196; Auto Invoicing</strong> &middot; ' +
+  '<strong style="color:#047857">&#128203; Digital Certificates</strong><br>' +
+  'Connecting homeowners with trusted, Gas Safe registered engineers</div></td></tr>' +
+  '<tr><td style="padding-top:12px"><p style="font-size:10px;color:#CBD5E1;margin:0;line-height:1.4">HomeLinq &mdash; a trading name of Infinite Life Records Ltd</p></td></tr>' +
+  '</table>';
+
+function sendAdminEmail(to, subject, type, data) {
+  if (!to || !subject) return;
+  var payload = {to: to, subject: subject, type: type || 'generic', data: data || {}};
+  sb.auth.getSession().then(function(sRes) {
+    var token = (sRes.data && sRes.data.session) ? sRes.data.session.access_token : '';
+    fetch(EDGE_URL + '/send-email', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token, 'apikey': SUPABASE_KEY},
+      body: JSON.stringify(payload)
+    }).then(function(r) { return r.json(); }).then(function(res) {
+      if (res.success) { console.log('Email sent to ' + to); }
+      else { console.log('Email error:', res.error); }
+    }).catch(function(err) { console.log('Email fetch error:', err); });
+  });
+}
+
+// ===== APPROVAL ACTIONS =====
+function findEngineer(engId) {
+  for (var i = 0; i < dashData.engineers.length; i++) {
+    if (dashData.engineers[i].id === engId) return dashData.engineers[i];
+  }
+  return null;
+}
+
+function approveEngineer(engId) {
+  var eng = findEngineer(engId);
+  var name = eng ? (eng.full_name || 'Engineer') : 'Engineer';
+  if (!confirm('Approve ' + name + '? They will gain full access to HomeLinq.')) return;
+  var btn = document.getElementById('approve-' + engId);
+  if (btn) btn.textContent = 'Approving...';
+  sb.from('engineers').update({status: 'approved'}).eq('id', engId).then(function(res) {
+    if (res.error) {
+      alert('Error approving engineer: ' + res.error.message);
+      if (btn) btn.textContent = 'Approve';
+      return;
+    }
+    // Send approval email
+    if (eng && eng.email) {
+      sendAdminEmail(
+        eng.email,
+        'Welcome to HomeLinq — You Are Approved!',
+        'engineer_approved',
+        {
+          engineer_name: eng.full_name || 'Engineer',
+          gas_safe_number: eng.gas_safe_number || '',
+          business_name: eng.business_name || '',
+          login_url: window.location.origin + '/app.html'
+        }
+      );
+    }
+    // Update local data
+    for (var i = 0; i < dashData.engineers.length; i++) {
+      if (dashData.engineers[i].id === engId) {
+        dashData.engineers[i].status = 'approved';
+        break;
+      }
+    }
+    renderPage();
+  });
+}
+
+function rejectEngineer(engId) {
+  var eng = findEngineer(engId);
+  var name = eng ? (eng.full_name || 'Engineer') : 'Engineer';
+  var reason = prompt('Reason for rejecting ' + name + ' (optional — will be included in their email):');
+  if (reason === null) return; // cancelled
+  var btn = document.getElementById('reject-' + engId);
+  if (btn) btn.textContent = 'Rejecting...';
+  sb.from('engineers').update({status: 'rejected', rejection_reason: reason || ''}).eq('id', engId).then(function(res) {
+    if (res.error) {
+      // If rejection_reason column doesn't exist, try without it
+      sb.from('engineers').update({status: 'rejected'}).eq('id', engId).then(function(res2) {
+        if (res2.error) {
+          alert('Error rejecting engineer: ' + res2.error.message);
+          if (btn) btn.textContent = 'Reject';
+          return;
+        }
+        sendRejectionEmail(eng, reason);
+        for (var i = 0; i < dashData.engineers.length; i++) {
+          if (dashData.engineers[i].id === engId) { dashData.engineers[i].status = 'rejected'; break; }
+        }
+        renderPage();
+      });
+      return;
+    }
+    sendRejectionEmail(eng, reason);
+    for (var i = 0; i < dashData.engineers.length; i++) {
+      if (dashData.engineers[i].id === engId) { dashData.engineers[i].status = 'rejected'; break; }
+    }
+    renderPage();
+  });
+}
+
+function sendRejectionEmail(eng, reason) {
+  if (!eng || !eng.email) return;
+  sendAdminEmail(
+    eng.email,
+    'HomeLinq Application Update',
+    'engineer_rejected',
+    {
+      engineer_name: eng.full_name || 'Engineer',
+      gas_safe_number: eng.gas_safe_number || '',
+      reason: reason || 'We were unable to verify your Gas Safe registration at this time.',
+      support_email: 'sales@homelinq.co.uk'
+    }
+  );
+}
+
+// ===== ADMIN SETUP =====
+var adminSetupMode = false;
+
+function toggleSetupMode() {
+  adminSetupMode = !adminSetupMode;
+  renderLogin();
+}
+
+function doAdminSetup() {
+  var emailEl = document.getElementById('admin-email');
+  var errEl = document.getElementById('login-error');
+  if (!emailEl) return;
+  var email = emailEl.value.trim().toLowerCase();
+  if (!email) { errEl.textContent = 'Please enter your admin email'; errEl.style.display = 'block'; return; }
+  if (email !== ADMIN_EMAIL) { errEl.textContent = 'Access denied — this email is not authorised for admin setup'; errEl.style.display = 'block'; return; }
+  errEl.style.display = 'none';
+  var btn = document.getElementById('setup-btn');
+  if (btn) { btn.textContent = 'Sending...'; btn.disabled = true; }
+  // Send password reset email — this works for both new and existing accounts
+  sb.auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.origin + '/admin.html'
+  }).then(function(res) {
+    if (res.error) {
+      // If user doesn't exist yet, create the account first with a temp password, then send reset
+      sb.auth.signUp({
+        email: email,
+        password: 'TempAdmin_' + Date.now(),
+        options: { data: { full_name: 'HomeLinq Admin', role: 'admin' }, emailRedirectTo: window.location.origin + '/admin.html' }
+      }).then(function(signupRes) {
+        if (signupRes.error) {
+          if (btn) { btn.textContent = 'Send Setup Link'; btn.disabled = false; }
+          errEl.textContent = signupRes.error.message;
+          errEl.style.display = 'block';
+          return;
+        }
+        // Now send password reset
+        sb.auth.resetPasswordForEmail(email, {
+          redirectTo: window.location.origin + '/admin.html'
+        }).then(function() {
+          showSetupSent(email);
+        });
+      });
+      return;
+    }
+    showSetupSent(email);
+  });
+}
+
+function showSetupSent(email) {
+  document.getElementById('app').innerHTML = '<div class="login-wrap">' +
+    '<div class="login-box" style="text-align:center">' +
+    '<div style="font-size:48px;margin-bottom:16px">📧</div>' +
+    '<h1>Check Your Email</h1>' +
+    '<p style="margin-bottom:8px">We sent a setup link to:</p>' +
+    '<div style="background:var(--bg);padding:10px 16px;border-radius:8px;font-weight:700;color:var(--teal);margin-bottom:20px;font-size:15px">' + email + '</div>' +
+    '<p style="font-size:13px;color:var(--muted);margin-bottom:20px">Click the link in the email to set your admin password. Once done, you will be redirected back here to log in.</p>' +
+    '<button class="login-btn" style="background:var(--navy)" onclick="adminSetupMode=false;renderLogin()">Back to Login</button>' +
+    '</div></div>';
+}
+
+// Handle password recovery redirect
+var _adminRecovery = window.location.hash.indexOf('type=recovery') > -1;
+
+function showAdminPasswordReset() {
+  document.getElementById('app').innerHTML = '<div class="login-wrap">' +
+    '<div class="login-box">' +
+    '<div class="badge">ADMIN SETUP</div>' +
+    '<h1>Set Your Password</h1>' +
+    '<p>Create a secure password for your admin account.</p>' +
+    '<input type="password" id="new-pass" class="login-input" placeholder="New password (min 6 characters)">' +
+    '<input type="password" id="confirm-pass" class="login-input" placeholder="Confirm password" onkeydown="if(event.key===\'Enter\')saveAdminPassword()">' +
+    '<button class="login-btn" id="save-pass-btn" onclick="saveAdminPassword()">Set Password &amp; Sign In</button>' +
+    '<div id="login-error" class="login-error"></div>' +
+    '</div></div>';
+}
+
+function saveAdminPassword() {
+  var newPass = document.getElementById('new-pass').value;
+  var confirmPass = document.getElementById('confirm-pass').value;
+  var errEl = document.getElementById('login-error');
+  if (!newPass || newPass.length < 6) { errEl.textContent = 'Password must be at least 6 characters'; errEl.style.display = 'block'; return; }
+  if (newPass !== confirmPass) { errEl.textContent = 'Passwords do not match'; errEl.style.display = 'block'; return; }
+  errEl.style.display = 'none';
+  var btn = document.getElementById('save-pass-btn');
+  if (btn) { btn.textContent = 'Saving...'; btn.disabled = true; }
+  sb.auth.updateUser({password: newPass}).then(function(res) {
+    if (res.error) {
+      errEl.textContent = res.error.message;
+      errEl.style.display = 'block';
+      if (btn) { btn.textContent = 'Set Password & Sign In'; btn.disabled = false; }
+      return;
+    }
+    // Clean hash and proceed
+    window.location.hash = '';
+    currentUser = res.data.user;
+    sessionStorage.setItem(ADMIN_AUTH_KEY, 'true');
+    loadDashboard();
+  });
+}
+
+// ===== RENDER LOGIN =====
+function renderLogin(err) {
+  var h = '<div class="login-wrap">' +
+    '<div class="login-box">';
+  if (adminSetupMode) {
+    h += '<div class="badge" style="background:var(--navy)">FIRST TIME SETUP</div>' +
+    '<h1>Set Up Admin Account</h1>' +
+    '<p>Enter your authorised admin email. We will send you a link to create your password.</p>' +
+    '<input type="email" id="admin-email" class="login-input" placeholder="Admin email" value="">' +
+    '<button class="login-btn" id="setup-btn" onclick="doAdminSetup()">Send Setup Link</button>' +
+    '<div id="login-error" class="login-error"' + (err ? ' style="display:block"' : '') + '>' + (err || '') + '</div>' +
+    '<div style="margin-top:16px;text-align:center">' +
+    '<a href="#" onclick="toggleSetupMode();return false" style="font-size:13px;color:var(--teal);text-decoration:none">Already have a password? Sign in</a></div>';
+  } else {
+    h += '<div class="badge">ADMIN ACCESS</div>' +
+    '<h1>HomeLinq Admin</h1>' +
+    '<p>Platform management dashboard — authorised personnel only.</p>' +
+    '<input type="email" id="admin-email" class="login-input" placeholder="Admin email" value="">' +
+    '<input type="password" id="admin-pass" class="login-input" placeholder="Password" onkeydown="if(event.key===\'Enter\')doAdminLogin()">' +
+    '<button class="login-btn" onclick="doAdminLogin()">Sign In</button>' +
+    '<div id="login-error" class="login-error"' + (err ? ' style="display:block"' : '') + '>' + (err || '') + '</div>' +
+    '<div style="margin-top:16px;text-align:center">' +
+    '<a href="#" onclick="toggleSetupMode();return false" style="font-size:13px;color:var(--teal);text-decoration:none">First time? Set up your account</a></div>';
+  }
+  h += '<div style="margin-top:20px;text-align:center;font-size:12px;color:var(--muted)">' +
+    'Infinite Life Records LTD — HomeLinq Platform' +
+    '</div>' +
+    '</div></div>';
+  document.getElementById('app').innerHTML = h;
+  var emailInput = document.getElementById('admin-email');
+  if (emailInput) emailInput.focus();
+}
+
+// ===== TAB SWITCHING =====
+function switchAdminTab(tab) {
+  currentAdminTab = tab;
+  renderPage();
+}
+
+function switchSalesTab(tab) {
+  salesSubTab = tab;
+  renderPage();
+}
+
+function renderPage() {
+  var h = '';
+  // Topbar with tabs
+  h += '<div class="topbar">' +
+    '<h1>Home<span>Linq</span> Admin</h1>' +
+    '<div class="tab-nav">' +
+    '<button class="tab-btn' + (currentAdminTab === 'dashboard' ? ' active' : '') + '" onclick="switchAdminTab(\'dashboard\')">Dashboard</button>' +
+    '<button class="tab-btn' + (currentAdminTab === 'sales' ? ' active' : '') + '" onclick="switchAdminTab(\'sales\')">Sales</button>' +
+    '</div>' +
+    '<div class="topbar-right">' +
+    '<span class="data-mode live">● LIVE</span>' +
+    '<button class="refresh-btn" onclick="loadDashboard()">↻ Refresh</button>' +
+    '<span class="topbar-user">' + (currentUser ? currentUser.email : '') + '</span>' +
+    '<button class="topbar-btn" onclick="doAdminLogout()">Sign Out</button>' +
+    '</div></div>';
+
+  h += '<div class="container">';
+
+  // Connection errors
+  if (queryErrors.length > 0) {
+    h += '<div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:var(--radius);padding:16px 20px;margin-bottom:16px">' +
+      '<div style="font-weight:700;color:#DC2626;margin-bottom:8px">⚠️ Some tables could not be queried</div>' +
+      '<div style="font-size:13px;color:#7F1D1D">' + queryErrors.join('<br>') + '</div></div>';
+  }
+
+  // Last refresh
+  h += '<div style="text-align:right;margin-bottom:16px;font-size:12px;color:var(--muted)">' +
+    'Last updated: ' + (lastRefresh ? fmtDateTime(lastRefresh) : '—') + '</div>';
+
+  if (currentAdminTab === 'sales') {
+    h += renderSalesContent();
+  } else {
+    h += renderDashboardContent();
+  }
+
+  h += '</div>'; // container
+  document.getElementById('app').innerHTML = h;
+}
+
+// ===== RENDER DASHBOARD =====
+function renderDashboardContent() {
+  var engs = dashData.engineers;
+  var custs = dashData.customers;
+  var jobs = dashData.jobs;
+  var invs = dashData.invoices;
+  var mkpl = dashData.marketplace;
+
+  // Split engineers by approval status
+  var pendingEngs = [];
+  var approvedEngs = [];
+  var rejectedEngs = [];
+  for (var i = 0; i < engs.length; i++) {
+    var st = engs[i].status || 'pending'; // every engineer must be verified
+    if (st === 'pending') pendingEngs.push(engs[i]);
+    else if (st === 'rejected') rejectedEngs.push(engs[i]);
+    else approvedEngs.push(engs[i]);
+  }
+
+  // Compute stats
+  var totalEngs = approvedEngs.length;
+  var totalCusts = custs.length;
+  var totalJobs = jobs.length;
+  var stripeActive = 0;
+  var stripePending = 0;
+  for (var i = 0; i < approvedEngs.length; i++) {
+    var si = getStripeInfo(approvedEngs[i].id);
+    if (si.stripe_status === 'active' && si.payouts_enabled) stripeActive++;
+    else stripePending++;
+  }
+
+  var totalRevenue = 0;
+  var paidInvoices = 0;
+  var unpaidInvoices = 0;
+  for (var i = 0; i < invs.length; i++) {
+    if (invs[i].status === 'paid') { totalRevenue += (invs[i].amount || invs[i].total || 0); paidInvoices++; }
+    else { unpaidInvoices++; }
+  }
+
+  var platformFees = Math.floor(totalRevenue * (15/85));
+
+  var completedJobs = 0;
+  var activeJobs = 0;
+  for (var i = 0; i < jobs.length; i++) {
+    if (jobs[i].status === 'completed') completedJobs++;
+    else activeJobs++;
+  }
+
+  var openMarketplace = 0;
+  for (var i = 0; i < mkpl.length; i++) {
+    if (mkpl[i].status === 'new') openMarketplace++;
+  }
+
+  // Area breakdown (approved only) — reads from engineer 'area' column (comma-separated)
+  var areas = {};
+  for (var i = 0; i < approvedEngs.length; i++) {
+    var engAreas = (approvedEngs[i].area || '').split(',').map(function(a){return a.trim()}).filter(function(a){return a});
+    if (engAreas.length === 0) engAreas = ['Not Set'];
+    for (var j = 0; j < engAreas.length; j++) {
+      areas[engAreas[j]] = (areas[engAreas[j]] || 0) + 1;
+    }
+  }
+  var areaKeys = Object.keys(areas).sort(function(a, b) { return areas[b] - areas[a]; });
+
+  // Recent signups (last 7 days)
+  var recentEngs = 0;
+  var recentCusts = 0;
+  for (var i = 0; i < engs.length; i++) { if (daysSince(engs[i].created_at) <= 7) recentEngs++; }
+  for (var i = 0; i < custs.length; i++) { if (daysSince(custs[i].created_at) <= 7) recentCusts++; }
+
+  // Build HTML
+  var h = '';
+
+  // PENDING APPROVALS — top of dashboard
+  if (pendingEngs.length > 0) {
+    h += '<div class="pending-alert"><div class="pulse"></div>' + pendingEngs.length + ' engineer' + (pendingEngs.length > 1 ? 's' : '') + ' awaiting Gas Safe verification</div>';
+    h += '<div class="card" style="border:2px solid var(--orange)">';
+    h += '<div class="card-header" style="background:#FFFBEB"><h2 style="color:#92400E">Pending Approvals</h2><span class="count" style="background:#FEF3C7;color:#D97706">' + pendingEngs.length + ' pending</span></div>';
+    h += '<div class="card-body">';
+    for (var i = 0; i < pendingEngs.length; i++) {
+      var pe = pendingEngs[i];
+      var initials = (pe.full_name || '??').split(' ').map(function(n){return n.charAt(0)}).join('').toUpperCase();
+      h += '<div class="approval-card">' +
+        '<div class="approval-avatar">' + initials + '</div>' +
+        '<div class="approval-info">' +
+        '<h3>' + (pe.full_name || 'Unknown') + '</h3>' +
+        '<div class="meta">' + (pe.email || '—') + ' — Applied ' + fmtDate(pe.created_at) + '</div>' +
+        '<div>' +
+        '<span class="approval-detail">Gas Safe: <strong>' + (pe.gas_safe_number || 'N/A') + '</strong></span>' +
+        '<span class="approval-detail">Business: <strong>' + (pe.business_name || 'N/A') + '</strong></span>' +
+        '<span class="approval-detail">Phone: <strong>' + (pe.phone || 'N/A') + '</strong></span>' +
+        '<span class="approval-detail">Area: <strong>' + (pe.area || 'Not Set') + '</strong></span>' +
+        '</div></div>' +
+        '<div class="approval-actions">' +
+        '<button class="btn-approve" id="approve-' + pe.id + '" onclick="approveEngineer(\'' + pe.id + '\')">Approve</button>' +
+        '<button class="btn-reject" id="reject-' + pe.id + '" onclick="rejectEngineer(\'' + pe.id + '\')">Reject</button>' +
+        '</div></div>';
+    }
+    h += '</div></div>';
+  }
+
+  // Stats row
+  h += '<div class="stats-row">';
+  h += '<div class="stat-card teal"><div class="label">Approved Engineers</div><div class="value">' + totalEngs + '</div><div class="sub">' + pendingEngs.length + ' pending approval</div></div>';
+  h += '<div class="stat-card blue"><div class="label">Registered Customers</div><div class="value">' + totalCusts + '</div><div class="sub">' + recentCusts + ' new this week</div></div>';
+  h += '<div class="stat-card green"><div class="label">Total Jobs</div><div class="value">' + totalJobs + '</div><div class="sub">' + completedJobs + ' completed, ' + activeJobs + ' active</div></div>';
+  h += '<div class="stat-card orange"><div class="label">Platform Fees Earned</div><div class="value">&#163;' + platformFees.toLocaleString() + '</div><div class="sub">From &#163;' + totalRevenue.toLocaleString() + ' total revenue</div></div>';
+  h += '</div>';
+
+  // Second stats row
+  h += '<div class="stats-row">';
+  h += '<div class="stat-card"><div class="label">Stripe Connected</div><div class="value" style="color:var(--green)">' + stripeActive + '</div><div class="sub">' + stripePending + ' pending setup</div></div>';
+  h += '<div class="stat-card"><div class="label">Invoices Paid</div><div class="value" style="color:var(--green)">' + paidInvoices + '</div><div class="sub">' + unpaidInvoices + ' outstanding</div></div>';
+  h += '<div class="stat-card"><div class="label">Marketplace Jobs</div><div class="value" style="color:var(--blue)">' + mkpl.length + '</div><div class="sub">' + openMarketplace + ' open listings</div></div>';
+  h += '<div class="stat-card"><div class="label">Coverage Areas</div><div class="value" style="color:var(--teal)">' + areaKeys.length + '</div><div class="sub">' + areaKeys.slice(0, 3).join(', ') + (areaKeys.length > 3 ? '...' : '') + '</div></div>';
+  h += '</div>';
+
+  // Third stats row — quotes & certificates
+  var totalQuotes = dashData.quotes.length;
+  var totalCerts = dashData.certificates.length;
+  h += '<div class="stats-row" style="grid-template-columns:repeat(2,1fr)">';
+  h += '<div class="stat-card"><div class="label">Quotes Sent</div><div class="value" style="color:var(--blue)">' + totalQuotes + '</div><div class="sub">Track quote conversions</div></div>';
+  h += '<div class="stat-card"><div class="label">CP12 Certificates</div><div class="value" style="color:var(--teal)">' + totalCerts + '</div><div class="sub">Gas safety compliance</div></div>';
+  h += '</div>';
+
+  // Engineers table (approved only)
+  h += '<div class="card">';
+  h += '<div class="card-header"><h2>Approved Engineers</h2><span class="count">' + approvedEngs.length + ' active</span></div>';
+  h += '<div class="card-body"><div class="table-wrap"><table>';
+  h += '<thead><tr><th>Engineer</th><th>Business</th><th>Gas Safe</th><th>Area</th><th>Phone</th><th>Stripe</th><th>Registered</th></tr></thead>';
+  h += '<tbody>';
+  for (var i = 0; i < approvedEngs.length; i++) {
+    var e = approvedEngs[i];
+    var si = getStripeInfo(e.id);
+    var stripeHtml = '';
+    if (si.stripe_status === 'active' && si.payouts_enabled) {
+      stripeHtml = '<span class="badge-active">Active</span>';
+    } else if (si.stripe_account_id) {
+      stripeHtml = '<span class="badge-pending">Incomplete</span>';
+    } else {
+      stripeHtml = '<span class="badge-inactive">Not Connected</span>';
+    }
+    h += '<tr>' +
+      '<td><div class="eng-name">' + (e.full_name || '—') + '</div><div class="eng-email">' + (e.email || '—') + '</div></td>' +
+      '<td>' + (e.business_name || '—') + '</td>' +
+      '<td>' + (e.gas_safe_number || '—') + '</td>' +
+      '<td>' + (e.area ? e.area.split(',').slice(0,3).map(function(a){return areaLabel(a.trim())}).join(', ') + (e.area.split(',').length > 3 ? ' <span style="color:var(--muted)">+' + (e.area.split(',').length - 3) + ' more</span>' : '') : '<span style="color:var(--muted)">Not Set</span>') + '</td>' +
+      '<td>' + (e.phone || '—') + '</td>' +
+      '<td>' + stripeHtml + '</td>' +
+      '<td>' + fmtDate(e.created_at) + '</td>' +
+      '</tr>';
+  }
+  if (approvedEngs.length === 0) {
+    h += '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:40px">No approved engineers yet</td></tr>';
+  }
+  h += '</tbody></table></div></div></div>';
+
+  // Geographic Coverage
+  h += '<div class="card">';
+  h += '<div class="card-header"><h2>Geographic Coverage</h2><span class="count">' + areaKeys.length + ' areas</span></div>';
+  h += '<div class="card-body">';
+  if (areaKeys.length > 0) {
+    h += '<div class="area-grid">';
+    for (var i = 0; i < areaKeys.length; i++) {
+      h += '<div class="area-card">' +
+        '<div class="area-name">' + areaLabel(areaKeys[i]) + '</div>' +
+        '<div class="area-count">' + areas[areaKeys[i]] + '</div>' +
+        '<div class="area-label">engineer' + (areas[areaKeys[i]] > 1 ? 's' : '') + '</div>' +
+        '</div>';
+    }
+    h += '</div>';
+  } else {
+    h += '<div style="text-align:center;color:var(--muted);padding:20px">No geographic data yet</div>';
+  }
+  h += '</div></div>';
+
+  // Customers table
+  h += '<div class="card">';
+  h += '<div class="card-header"><h2>Registered Customers</h2><span class="count">' + totalCusts + ' total</span></div>';
+  h += '<div class="card-body"><div class="table-wrap"><table>';
+  h += '<thead><tr><th>Customer</th><th>Email</th><th>Phone</th><th>Address</th><th>Registered</th></tr></thead>';
+  h += '<tbody>';
+  for (var i = 0; i < custs.length; i++) {
+    var c = custs[i];
+    h += '<tr>' +
+      '<td><strong>' + (c.full_name || '—') + '</strong></td>' +
+      '<td>' + (c.email || '—') + '</td>' +
+      '<td>' + (c.phone || '—') + '</td>' +
+      '<td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (c.address || '—') + '</td>' +
+      '<td>' + fmtDate(c.created_at) + '</td>' +
+      '</tr>';
+  }
+  if (custs.length === 0) {
+    h += '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:40px">No customers registered yet</td></tr>';
+  }
+  h += '</tbody></table></div></div></div>';
+
+  // Helper: engineer name by ID
+  function engNameById(eid) {
+    for (var x = 0; x < engs.length; x++) { if (engs[x].id === eid) return engs[x].full_name || engs[x].business_name || '—'; }
+    return '—';
+  }
+
+  // Jobs table
+  var sortedJobs = jobs.slice().sort(function(a, b) { return new Date(b.created_at) - new Date(a.created_at); });
+  h += '<div class="card">';
+  h += '<div class="card-header"><h2>All Jobs</h2><span class="count">' + totalJobs + ' total</span></div>';
+  h += '<div class="card-body"><div class="table-wrap"><table>';
+  h += '<thead><tr><th>Date</th><th>Engineer</th><th>Customer</th><th>Description</th><th>Status</th><th>Price</th><th>Address</th></tr></thead>';
+  h += '<tbody>';
+  var showJobs = Math.min(sortedJobs.length, 30);
+  for (var i = 0; i < showJobs; i++) {
+    var jb = sortedJobs[i];
+    var jStatus = jb.status || 'upcoming';
+    var jBadge = jStatus === 'completed' ? 'badge-active' : jStatus === 'in_progress' ? 'badge-pending' : 'badge-inactive';
+    h += '<tr>' +
+      '<td style="white-space:nowrap">' + fmtDate(jb.scheduled_date || jb.created_at) + '</td>' +
+      '<td>' + engNameById(jb.engineer_id) + '</td>' +
+      '<td>' + (jb.customer_name || '—') + '</td>' +
+      '<td>' + (jb.description || '—') + '</td>' +
+      '<td><span class="' + jBadge + '">' + jStatus + '</span></td>' +
+      '<td>' + (jb.price ? '&#163;' + jb.price : '—') + '</td>' +
+      '<td style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (jb.address || '—') + '</td>' +
+      '</tr>';
+  }
+  if (sortedJobs.length === 0) {
+    h += '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:40px">No jobs yet</td></tr>';
+  }
+  if (sortedJobs.length > 30) {
+    h += '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:12px;font-size:13px">Showing latest 30 of ' + sortedJobs.length + ' jobs</td></tr>';
+  }
+  h += '</tbody></table></div></div></div>';
+
+  // Invoices table
+  var sortedInvs = invs.slice().sort(function(a, b) { return new Date(b.created_at) - new Date(a.created_at); });
+  h += '<div class="card">';
+  h += '<div class="card-header"><h2>Invoices</h2><span class="count">' + invs.length + ' total &mdash; ' + paidInvoices + ' paid, ' + unpaidInvoices + ' outstanding</span></div>';
+  h += '<div class="card-body"><div class="table-wrap"><table>';
+  h += '<thead><tr><th>Date</th><th>Invoice #</th><th>Engineer</th><th>Customer</th><th>Amount</th><th>Status</th></tr></thead>';
+  h += '<tbody>';
+  var showInvs = Math.min(sortedInvs.length, 30);
+  for (var i = 0; i < showInvs; i++) {
+    var inv = sortedInvs[i];
+    var invBadge = inv.status === 'paid' ? 'badge-active' : inv.status === 'sent' ? 'badge-pending' : 'badge-inactive';
+    h += '<tr>' +
+      '<td style="white-space:nowrap">' + fmtDate(inv.created_at) + '</td>' +
+      '<td style="font-weight:700">' + (inv.invoice_number || inv.id || '—') + '</td>' +
+      '<td>' + engNameById(inv.engineer_id) + '</td>' +
+      '<td>' + (inv.customer_name || '—') + '</td>' +
+      '<td style="font-weight:700">&#163;' + (inv.amount || inv.total || 0) + '</td>' +
+      '<td><span class="' + invBadge + '">' + (inv.status || 'draft') + '</span></td>' +
+      '</tr>';
+  }
+  if (sortedInvs.length === 0) {
+    h += '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:40px">No invoices yet</td></tr>';
+  }
+  if (sortedInvs.length > 30) {
+    h += '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:12px;font-size:13px">Showing latest 30 of ' + sortedInvs.length + ' invoices</td></tr>';
+  }
+  h += '</tbody></table></div></div></div>';
+
+  // Quotes table
+  var quotes = dashData.quotes;
+  var sortedQuotes = quotes.slice().sort(function(a, b) { return new Date(b.created_at) - new Date(a.created_at); });
+  var acceptedQuotes = 0;
+  var pendingQuotes = 0;
+  for (var i = 0; i < quotes.length; i++) {
+    if (quotes[i].status === 'accepted' || quotes[i].status === 'scheduled') acceptedQuotes++;
+    else if (quotes[i].status === 'sent' || quotes[i].status === 'draft') pendingQuotes++;
+  }
+  h += '<div class="card">';
+  h += '<div class="card-header"><h2>Quotes</h2><span class="count">' + quotes.length + ' total &mdash; ' + acceptedQuotes + ' accepted, ' + pendingQuotes + ' pending</span></div>';
+  h += '<div class="card-body"><div class="table-wrap"><table>';
+  h += '<thead><tr><th>Date</th><th>Engineer</th><th>Customer</th><th>Description</th><th>Amount</th><th>Status</th></tr></thead>';
+  h += '<tbody>';
+  var showQuotes = Math.min(sortedQuotes.length, 30);
+  for (var i = 0; i < showQuotes; i++) {
+    var qt = sortedQuotes[i];
+    var qtBadge = (qt.status === 'accepted' || qt.status === 'scheduled') ? 'badge-active' : (qt.status === 'sent' || qt.status === 'draft') ? 'badge-pending' : 'badge-inactive';
+    h += '<tr>' +
+      '<td style="white-space:nowrap">' + fmtDate(qt.created_at) + '</td>' +
+      '<td>' + engNameById(qt.engineer_id) + '</td>' +
+      '<td>' + (qt.customer_name || '—') + '</td>' +
+      '<td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (qt.description || qt.job_type || '—') + '</td>' +
+      '<td style="font-weight:700">' + (qt.total ? '&#163;' + qt.total : '—') + '</td>' +
+      '<td><span class="' + qtBadge + '">' + (qt.status || 'draft') + '</span></td>' +
+      '</tr>';
+  }
+  if (sortedQuotes.length === 0) {
+    h += '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:40px">No quotes yet</td></tr>';
+  }
+  h += '</tbody></table></div></div></div>';
+
+  // Certificates table
+  var certs = dashData.certificates;
+  var sortedCerts = certs.slice().sort(function(a, b) { return new Date(b.created_at) - new Date(a.created_at); });
+  h += '<div class="card">';
+  h += '<div class="card-header"><h2>CP12 Certificates</h2><span class="count">' + certs.length + ' issued</span></div>';
+  h += '<div class="card-body"><div class="table-wrap"><table>';
+  h += '<thead><tr><th>Date</th><th>Engineer</th><th>Customer</th><th>Address</th><th>Appliances</th><th>Result</th></tr></thead>';
+  h += '<tbody>';
+  var showCerts = Math.min(sortedCerts.length, 30);
+  for (var i = 0; i < showCerts; i++) {
+    var ct = sortedCerts[i];
+    var ctResult = ct.overall_result || ct.result || 'pass';
+    var ctBadge = ctResult.toLowerCase() === 'pass' ? 'badge-active' : ctResult.toLowerCase() === 'fail' ? 'badge-inactive' : 'badge-pending';
+    h += '<tr>' +
+      '<td style="white-space:nowrap">' + fmtDate(ct.inspection_date || ct.created_at) + '</td>' +
+      '<td>' + engNameById(ct.engineer_id) + '</td>' +
+      '<td>' + (ct.customer_name || ct.landlord_name || '—') + '</td>' +
+      '<td style="max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (ct.address || '—') + '</td>' +
+      '<td>' + (ct.appliance_count || ct.num_appliances || '—') + '</td>' +
+      '<td><span class="' + ctBadge + '">' + ctResult + '</span></td>' +
+      '</tr>';
+  }
+  if (sortedCerts.length === 0) {
+    h += '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:40px">No certificates issued yet</td></tr>';
+  }
+  h += '</tbody></table></div></div></div>';
+
+  // Recent Activity
+  h += '<div class="card">';
+  h += '<div class="card-header"><h2>Recent Platform Activity</h2></div>';
+  h += '<div class="card-body">';
+  // Merge and sort recent events
+  var events = [];
+  for (var i = 0; i < engs.length; i++) {
+    events.push({time: engs[i].created_at, type:'engineer', text: (engs[i].full_name || 'Unknown') + ' registered as engineer', icon:'👷'});
+  }
+  for (var i = 0; i < custs.length; i++) {
+    events.push({time: custs[i].created_at, type:'customer', text: (custs[i].full_name || 'Unknown') + ' registered as customer', icon:'👤'});
+  }
+  for (var i = 0; i < jobs.length; i++) {
+    var j = jobs[i];
+    var engName = '—';
+    for (var k = 0; k < engs.length; k++) {
+      if (engs[k].id === j.engineer_id) { engName = engs[k].full_name; break; }
+    }
+    events.push({time: j.created_at, type:'job', text: (j.type || 'Job') + ' job ' + (j.status === 'completed' ? 'completed' : 'created') + ' — ' + engName, icon:'🔧'});
+  }
+  for (var i = 0; i < invs.length; i++) {
+    var inv = invs[i];
+    events.push({time: inv.created_at, type:'invoice', text: 'Invoice &#163;' + (inv.amount || inv.total || 0) + ' — ' + inv.status, icon:'💷'});
+  }
+  for (var i = 0; i < dashData.quotes.length; i++) {
+    var qt = dashData.quotes[i];
+    events.push({time: qt.created_at, type:'quote', text: 'Quote ' + (qt.total ? '&#163;' + qt.total : '') + ' — ' + (qt.status || 'draft') + ' — ' + engNameById(qt.engineer_id), icon:'📋'});
+  }
+  for (var i = 0; i < dashData.certificates.length; i++) {
+    var ct = dashData.certificates[i];
+    events.push({time: ct.created_at, type:'cert', text: 'CP12 certificate issued — ' + engNameById(ct.engineer_id) + (ct.address ? ' at ' + ct.address : ''), icon:'📜'});
+  }
+  events.sort(function(a, b) { return new Date(b.time) - new Date(a.time); });
+  var maxEvents = Math.min(events.length, 15);
+  if (maxEvents > 0) {
+    for (var i = 0; i < maxEvents; i++) {
+      var ev = events[i];
+      h += '<div style="display:flex;align-items:center;gap:12px;padding:10px 0;' + (i < maxEvents - 1 ? 'border-bottom:1px solid #F1F5F9' : '') + '">' +
+        '<div style="font-size:20px;flex-shrink:0">' + ev.icon + '</div>' +
+        '<div style="flex:1"><div style="font-size:14px">' + ev.text + '</div>' +
+        '<div style="font-size:12px;color:var(--muted)">' + fmtDateTime(ev.time) + '</div></div></div>';
+    }
+  } else {
+    h += '<div style="text-align:center;color:var(--muted);padding:20px">No activity yet</div>';
+  }
+  h += '</div></div>';
+
+  // Rejected Engineers (if any)
+  if (rejectedEngs.length > 0) {
+    h += '<div class="card" style="opacity:.7">';
+    h += '<div class="card-header"><h2 style="color:var(--red)">Rejected Applications</h2><span class="count">' + rejectedEngs.length + '</span></div>';
+    h += '<div class="card-body"><div class="table-wrap"><table>';
+    h += '<thead><tr><th>Engineer</th><th>Business</th><th>Gas Safe</th><th>Email</th><th>Applied</th></tr></thead>';
+    h += '<tbody>';
+    for (var i = 0; i < rejectedEngs.length; i++) {
+      var re = rejectedEngs[i];
+      h += '<tr><td><strong>' + (re.full_name || '—') + '</strong></td>' +
+        '<td>' + (re.business_name || '—') + '</td>' +
+        '<td>' + (re.gas_safe_number || '—') + '</td>' +
+        '<td>' + (re.email || '—') + '</td>' +
+        '<td>' + fmtDate(re.created_at) + '</td></tr>';
+    }
+    h += '</tbody></table></div></div></div>';
+  }
+
+  return h;
+}
+
+// ===== SALES PIPELINE =====
+var FOLLOWUP_DAYS = [3, 7, 14];
+
+function getLeadOutreach(leadId) {
+  return salesData.outreach.filter(function(o) { return o.lead_id === leadId; });
+}
+
+function getFollowUpsDue() {
+  var due = [];
+  var now = Date.now();
+  for (var i = 0; i < salesData.leads.length; i++) {
+    var lead = salesData.leads[i];
+    if (!lead.email || lead.status === 'replied' || lead.status === 'signed_up' || lead.status === 'declined' || lead.status === 'unsubscribed') continue;
+    var emails = getLeadOutreach(lead.id).filter(function(o) { return o.status === 'sent'; });
+    if (emails.length === 0) continue;
+    // Sort by sent_at descending
+    emails.sort(function(a, b) { return new Date(b.sent_at) - new Date(a.sent_at); });
+    var lastSent = emails[0];
+    var daysSinceLast = Math.floor((now - new Date(lastSent.sent_at).getTime()) / 86400000);
+    var totalSent = emails.length;
+    // Determine next follow-up number
+    var nextFollowup = totalSent; // 1=followup1, 2=followup2, 3=followup3
+    if (nextFollowup > 3) continue; // All follow-ups sent
+    var dueAfterDays = FOLLOWUP_DAYS[nextFollowup - 1];
+    if (daysSinceLast >= dueAfterDays) {
+      due.push({lead: lead, followupNum: nextFollowup, daysSinceLast: daysSinceLast, lastEmail: lastSent});
+    }
+  }
+  return due;
+}
+
+function getNextFollowupType(leadId) {
+  var emails = getLeadOutreach(leadId).filter(function(o) { return o.status === 'sent'; });
+  var totalSent = emails.length;
+  if (totalSent <= 0) return 'followup_1';
+  if (totalSent >= 3) return 'followup_3';
+  return 'followup_' + totalSent;
+}
+
+function onSalesSearch(el) {
+  salesSearch = el.value;
+  var pos = el.selectionStart;
+  renderPage();
+  var newEl = document.getElementById('sales-search');
+  if (newEl) {
+    newEl.focus();
+    newEl.setSelectionRange(pos, pos);
+  }
+}
+
+function renderSalesContent() {
+  var leads = salesData.leads;
+  var outreach = salesData.outreach;
+  var h = '';
+
+  // Stats
+  var totalLeads = leads.length;
+  var newLeads = 0, contactedLeads = 0, repliedLeads = 0, signedUp = 0;
+  var researchReady = 0, draftsReady = 0;
+  for (var i = 0; i < leads.length; i++) {
+    var st = leads[i].status || 'new';
+    if (st === 'new') newLeads++;
+    else if (st === 'contacted') contactedLeads++;
+    else if (st === 'replied') repliedLeads++;
+    else if (st === 'signed_up') signedUp++;
+    if (leads[i].research_status === 'completed') researchReady++;
+  }
+  for (var i = 0; i < outreach.length; i++) {
+    if (outreach[i].status === 'draft') draftsReady++;
+  }
+  var followUpsDue = getFollowUpsDue();
+
+  h += '<div class="pipe-stats">';
+  h += '<div class="pipe-stat new"><div class="ps-val">' + totalLeads + '</div><div class="ps-lbl">Total Leads</div></div>';
+  h += '<div class="pipe-stat new"><div class="ps-val">' + newLeads + '</div><div class="ps-lbl">New</div></div>';
+  h += '<div class="pipe-stat contacted"><div class="ps-val">' + contactedLeads + '</div><div class="ps-lbl">Contacted</div></div>';
+  h += '<div class="pipe-stat replied"><div class="ps-val">' + repliedLeads + '</div><div class="ps-lbl">Replied</div></div>';
+  h += '<div class="pipe-stat signedup"><div class="ps-val">' + signedUp + '</div><div class="ps-lbl">Signed Up</div></div>';
+  h += '<div class="pipe-stat due"><div class="ps-val">' + followUpsDue.length + '</div><div class="ps-lbl">Follow-ups Due</div></div>';
+  h += '</div>';
+
+  // Sub-tabs
+  h += '<div class="sales-tabs">';
+  h += '<button class="sales-tab' + (salesSubTab === 'leads' ? ' active' : '') + '" onclick="switchSalesTab(\'leads\')">Leads</button>';
+  h += '<button class="sales-tab' + (salesSubTab === 'research' ? ' active' : '') + '" onclick="switchSalesTab(\'research\')">Research' + (researchReady > 0 ? ' <span class="tab-count">' + researchReady + '</span>' : '') + '</button>';
+  h += '<button class="sales-tab' + (salesSubTab === 'drafts' ? ' active' : '') + '" onclick="switchSalesTab(\'drafts\')">Drafts' + (draftsReady > 0 ? ' <span class="tab-count">' + draftsReady + '</span>' : '') + '</button>';
+  h += '<button class="sales-tab' + (salesSubTab === 'outbox' ? ' active' : '') + '" onclick="switchSalesTab(\'outbox\')">Outbox</button>';
+  h += '<button class="sales-tab' + (salesSubTab === 'complete' ? ' active' : '') + '" onclick="switchSalesTab(\'complete\')">Lead Complete' + ((contactedLeads + repliedLeads + signedUp) > 0 ? ' <span class="tab-count">' + (contactedLeads + repliedLeads + signedUp) + '</span>' : '') + '</button>';
+  h += '<button class="sales-tab' + (salesSubTab === 'insights' ? ' active' : '') + '" onclick="switchSalesTab(\'insights\')">Insights</button>';
+  h += '</div>';
+
+  // Action bar
+  h += '<div class="action-bar">';
+  h += '<button class="btn-sm btn-blue" onclick="showCSVUploadModal()">Upload CSV</button>';
+  if (draftsReady > 0) h += '<button class="btn-sm btn-teal" onclick="switchSalesTab(\'drafts\')">' + draftsReady + ' Draft' + (draftsReady > 1 ? 's' : '') + ' approved</button>';
+  if (followUpsDue.length > 0) h += '<button class="btn-sm btn-orange" onclick="sendAllFollowUps()">' + followUpsDue.length + ' Follow-up' + (followUpsDue.length > 1 ? 's' : '') + '</button>';
+  h += '<button class="btn-sm btn-purple" onclick="toggleDiscoverSection()">Discover Leads</button>';
+  h += '</div>';
+
+  // Tab content
+  if (salesSubTab === 'leads') h += renderLeadsTab(followUpsDue);
+  else if (salesSubTab === 'research') h += renderResearchTab();
+  else if (salesSubTab === 'drafts') h += renderDraftsTab();
+  else if (salesSubTab === 'outbox') h += renderOutboxTab();
+  else if (salesSubTab === 'complete') h += renderLeadCompleteTab(followUpsDue);
+  else if (salesSubTab === 'insights') h += renderInsightsTab();
+
+  return h;
+}
+
+// ===== LEADS TAB =====
+function renderLeadsTab(followUpsDue) {
+  var leads = salesData.leads;
+  var h = '';
+
+  // Discover section
+  h += '<div class="discover-section" id="discover-section">';
+  h += '<h3>Discover leads</h3>';
+  h += '<div class="discover-row">';
+  h += '<div class="field"><label>Town or postcode</label><input type="text" id="discover-location" placeholder="e.g. Leeds, LS1, Sheffield"></div>';
+  h += '<div class="field"><label>Trade</label><select id="discover-trade"><option value="gas_engineer">Gas engineer</option><option value="plumber">Plumber</option><option value="heating_engineer">Heating engineer</option><option value="boiler_specialist">Boiler specialist</option></select></div>';
+  h += '<div class="field" style="max-width:100px"><label>Count</label><select id="discover-count"><option value="5">5 leads</option><option value="10">10 leads</option><option value="15" selected>15 leads</option><option value="25">25 leads</option></select></div>';
+  h += '<button class="btn-sm btn-teal" onclick="discoverByArea()" style="height:42px;margin-bottom:0">Find in area</button>';
+  h += '</div>';
+  h += '<div class="discover-hint">Moti searches the web (Yell, Gas Safe, Checkatrade, direct listings) to find businesses in that area. Found leads land in your list with status <strong>new</strong>.</div>';
+  h += '<div class="discover-divider">or paste URLs / company names</div>';
+  h += '<div class="discover-hint" style="margin-bottom:8px">Paste one per line — Moti works out whether it\'s a URL or a company name. For URLs he visits the site directly. For names he searches the web first, finds the business, then reads their site.</div>';
+  h += '<textarea class="discover-textarea" id="discover-urls" placeholder="https://example-plumber.co.uk\nABC Plumbing London\nquickdrive.co.uk\nSmith &amp; Sons, Birmingham"></textarea>';
+  h += '<div style="display:flex;gap:8px;margin-top:12px">';
+  h += '<button class="btn-sm btn-teal" onclick="discoverByUrls()">Discover</button>';
+  h += '<button class="btn-sm btn-outline" onclick="toggleDiscoverSection()">Cancel</button>';
+  h += '</div>';
+  h += '<div id="discover-results"></div>';
+  h += '</div>';
+
+  // Filter / search
+  h += '<div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">';
+  h += '<button class="btn-sm btn-teal" onclick="showAddLeadModal()">+ Add Lead</button>';
+  h += '<select onchange="salesFilter=this.value;renderPage()" style="padding:8px 12px;border:2px solid #E2E8F0;border-radius:var(--radius);font-size:13px;font-weight:600;background:#fff">';
+  h += '<option value="all"' + (salesFilter === 'all' ? ' selected' : '') + '>All</option>';
+  h += '<option value="new"' + (salesFilter === 'new' ? ' selected' : '') + '>New</option>';
+  h += '<option value="researched"' + (salesFilter === 'researched' ? ' selected' : '') + '>Researched</option>';
+  h += '<option value="no_email"' + (salesFilter === 'no_email' ? ' selected' : '') + '>No Email</option>';
+  h += '</select>';
+  h += '<input type="text" class="search-input" id="sales-search" placeholder="Search business, contact, or email..." value="' + (salesSearch || '') + '" oninput="onSalesSearch(this)" style="flex:1;min-width:200px;padding:10px 14px;border:2px solid #E2E8F0;border-radius:var(--radius);font-size:14px">';
+  h += '<span style="color:var(--muted);font-size:13px">' + leads.length + ' leads</span>';
+  h += '</div>';
+
+  // Filter
+  var filtered = [];
+  for (var i = 0; i < leads.length; i++) {
+    var l = leads[i];
+    var st = l.status || 'new';
+    if (salesFilter === 'no_email' && l.email) continue;
+    if (salesFilter === 'new' && (l.research_status === 'completed' || l.research_status === 'approved' || l.research_status === 'pending')) continue;
+    if (salesFilter === 'researched' && l.research_status !== 'completed' && l.research_status !== 'approved') continue;
+    if (salesSearch) {
+      var q = salesSearch.toLowerCase();
+      var searchable = ((l.business_name || '') + ' ' + (l.contact_name || '') + ' ' + (l.email || '') + ' ' + (l.location || '')).toLowerCase();
+      if (searchable.indexOf(q) === -1) continue;
+    }
+    filtered.push(l);
+  }
+
+  h += '<div class="card"><div class="card-header"><h2>Leads</h2><span class="count">' + filtered.length + '</span></div>';
+  h += '<div class="card-body" style="padding:0">';
+
+  if (filtered.length === 0) {
+    h += '<div style="text-align:center;color:var(--muted);padding:40px">No leads found. Discover leads or add manually.</div>';
+  }
+
+  for (var i = 0; i < filtered.length; i++) {
+    var l = filtered[i];
+    var rs = l.research_status;
+    var ls = l.status || 'new';
+    h += '<div class="lead-row">';
+    h += '<div class="lead-info">';
+    h += '<div class="lead-name">' + (l.business_name || 'Unknown') + '</div>';
+    h += '<div class="lead-meta">';
+    if (l.contact_name) h += l.contact_name + ' &middot; ';
+    if (l.email) h += l.email + ' &middot; ';
+    else h += '<span style="color:var(--red)">no email</span> &middot; ';
+    if (l.location) h += l.location;
+    if (l.trade) h += ' &middot; ' + l.trade.replace(/_/g, ' ');
+    h += '</div>';
+    if (l.researched_at) h += '<div class="lead-meta" style="margin-top:2px">Researched ' + daysSince(l.researched_at) + 'd ago</div>';
+    h += '</div>';
+
+    // Badge
+    if (rs === 'pending') h += '<span class="badge-pending">Researching...</span>';
+    else if (rs === 'completed') h += '<span class="badge-contacted">&#10003; Researched</span>';
+    else if (rs === 'approved') h += '<span class="badge-signed">Approved</span>';
+    else if (ls === 'contacted') h += '<span class="badge-contacted">CONTACTED</span>';
+    else if (ls === 'replied') h += '<span class="badge-replied">REPLIED</span>';
+    else if (ls === 'signed_up') h += '<span class="badge-signed">SIGNED UP</span>';
+    else h += '<span class="badge-new">NEW</span>';
+
+    // Actions
+    h += '<div class="lead-actions">';
+    if (!rs || rs === 'rejected') {
+      h += '<button class="btn-sm btn-teal" onclick="researchLead(\'' + l.id + '\')">Research</button>';
+    } else if (rs === 'completed') {
+      h += '<button class="btn-sm btn-green" onclick="switchSalesTab(\'research\')">Review &rarr;</button>';
+    }
+    if (l.website) {
+      h += '<a class="btn-sm btn-outline" href="' + (l.website.indexOf('http') === 0 ? l.website : 'https://' + l.website) + '" target="_blank" style="text-decoration:none;display:inline-block">Website</a>';
+    }
+    h += '<button class="btn-sm btn-danger" onclick="deleteLead(\'' + l.id + '\')">&#215;</button>';
+    h += '</div></div>';
+  }
+
+  h += '</div></div>';
+  return h;
+}
+
+// ===== RESEARCH TAB =====
+function renderResearchTab() {
+  var h = '';
+  var researched = [];
+  for (var i = 0; i < salesData.leads.length; i++) {
+    if (salesData.leads[i].research_status === 'completed') researched.push(salesData.leads[i]);
+  }
+
+  if (researched.length === 0) {
+    h += '<div class="card"><div class="card-body" style="text-align:center;color:var(--muted);padding:60px">';
+    h += '<div style="font-size:32px;margin-bottom:12px">&#128269;</div>';
+    h += '<div style="font-size:16px;font-weight:600;margin-bottom:4px">No research pending</div>';
+    h += '<div>Click "Research" on a lead in the Leads tab to get Moti\'s analysis.</div>';
+    h += '</div></div>';
+    return h;
+  }
+
+  h += '<div style="font-size:14px;color:var(--muted);margin-bottom:16px">' + researched.length + ' lead' + (researched.length > 1 ? 's' : '') + ' researched — review and approve to draft an email.</div>';
+
+  for (var i = 0; i < researched.length; i++) {
+    var l = researched[i];
+    var rd = l.research_data || {};
+    var fit = rd.fit_score || 0;
+    var fitClass = fit >= 7 ? 'good' : fit >= 4 ? 'ok' : 'poor';
+
+    h += '<div class="research-card">';
+    h += '<h3>' + (l.business_name || 'Unknown') + ' <span class="rc-fit ' + fitClass + '">fit ' + fit + '/10</span></h3>';
+    h += '<div class="rc-meta">' + (l.trade || '').replace(/_/g, ' ') + ' &middot; ' + (l.location || '') + (l.website ? ' &middot; <a href="' + (l.website.indexOf('http') === 0 ? l.website : 'https://' + l.website) + '" target="_blank" style="color:var(--teal)">' + l.website + '</a>' : '') + '</div>';
+
+    // Summary
+    if (rd.summary) {
+      h += '<div class="rc-section"><div class="rc-section-title">Summary</div>';
+      h += '<div style="font-size:14px;line-height:1.6">' + rd.summary + '</div></div>';
+    }
+
+    // Services
+    if (rd.services && rd.services.length > 0) {
+      h += '<div class="rc-section"><div class="rc-section-title">Services they offer</div><ul class="rc-list">';
+      for (var s = 0; s < rd.services.length; s++) h += '<li>' + rd.services[s] + '</li>';
+      h += '</ul></div>';
+    }
+
+    // Scale
+    if (rd.scale) {
+      h += '<div class="rc-section"><div class="rc-section-title">Scale</div>';
+      h += '<div style="font-size:14px">' + rd.scale + '</div></div>';
+    }
+
+    // Area served
+    if (rd.area_served) {
+      h += '<div class="rc-section"><div class="rc-section-title">Area served</div>';
+      h += '<div style="font-size:14px">' + rd.area_served + '</div></div>';
+    }
+
+    // Pain points
+    if (rd.pain_points && rd.pain_points.length > 0) {
+      h += '<div class="rc-section"><div class="rc-section-title">Pain points Moti spotted</div><ul class="rc-list">';
+      for (var p = 0; p < rd.pain_points.length; p++) h += '<li>' + rd.pain_points[p] + '</li>';
+      h += '</ul></div>';
+    }
+
+    // Opening lines
+    if (rd.opening_lines && rd.opening_lines.length > 0) {
+      h += '<div class="rc-section"><div class="rc-section-title">Opening lines Moti will use</div><ul class="rc-list">';
+      for (var o = 0; o < rd.opening_lines.length; o++) h += '<li>' + rd.opening_lines[o] + '</li>';
+      h += '</ul></div>';
+    }
+
+    // Warnings
+    if (rd.warnings && rd.warnings.length > 0) {
+      h += '<div class="rc-section"><div class="rc-section-title">Warnings</div>';
+      for (var w = 0; w < rd.warnings.length; w++) {
+        h += '<div class="rc-warning">&#9888; ' + rd.warnings[w] + '</div>';
+      }
+      h += '</div>';
+    }
+
+    // Fit reason
+    if (rd.fit_reason) {
+      h += '<div style="font-size:13px;color:var(--muted);margin-bottom:16px"><strong>Fit:</strong> ' + rd.fit_reason + '</div>';
+    }
+
+    // Actions
+    h += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+    if (l.email) {
+      h += '<button class="btn-sm btn-teal" onclick="approveResearch(\'' + l.id + '\')">Approve &amp; draft email</button>';
+    } else {
+      h += '<button class="btn-sm btn-teal" disabled style="opacity:.5">No email — can\'t draft</button>';
+    }
+    h += '<button class="btn-sm btn-outline" onclick="rejectResearch(\'' + l.id + '\')">Reject</button>';
+    h += '</div>';
+    h += '</div>';
+  }
+
+  return h;
+}
+
+// ===== DRAFTS TAB =====
+function renderDraftsTab() {
+  var h = '';
+  var drafts = [];
+  for (var i = 0; i < salesData.outreach.length; i++) {
+    if (salesData.outreach[i].status === 'draft') drafts.push(salesData.outreach[i]);
+  }
+
+  if (drafts.length === 0) {
+    h += '<div class="card"><div class="card-body" style="text-align:center;color:var(--muted);padding:60px">';
+    h += '<div style="font-size:32px;margin-bottom:12px">&#9993;</div>';
+    h += '<div style="font-size:16px;font-weight:600;margin-bottom:4px">No drafts waiting</div>';
+    h += '<div>Approve a researched lead to generate a draft email.</div>';
+    h += '</div></div>';
+    return h;
+  }
+
+  for (var i = 0; i < drafts.length; i++) {
+    var d = drafts[i];
+    var lead = null;
+    for (var j = 0; j < salesData.leads.length; j++) {
+      if (salesData.leads[j].id === d.lead_id) { lead = salesData.leads[j]; break; }
+    }
+    var toName = lead ? (lead.business_name || 'Unknown') : 'Unknown';
+    var toEmail = lead ? (lead.email || '') : '';
+
+    h += '<div class="draft-card" id="draft-card-' + d.id + '">';
+    h += '<div class="dc-to">To: ' + toName + ' &middot; ' + toEmail + ' &middot; ' + (d.email_type || '').replace(/_/g, ' ') + ' &middot; drafted ' + daysSince(d.created_at) + 'd ago</div>';
+    h += '<div class="dc-subject">' + (d.subject || 'No subject') + '</div>';
+    h += '<div class="dc-body">' + (d.body_html || '') + '</div>';
+
+    // CC field
+    h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">';
+    h += '<span style="font-weight:600;font-size:13px;color:var(--muted)">CC</span>';
+    h += '<input type="text" id="draft-cc-' + d.id + '" placeholder="copy this email to (comma-separated, optional)" style="flex:1;padding:8px 12px;border:2px solid #E2E8F0;border-radius:var(--radius);font-size:13px">';
+    h += '</div>';
+
+    // Action buttons
+    h += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+    h += '<button class="btn-sm btn-teal" onclick="approveDraftFromTab(\'' + d.id + '\')">Approve &amp; send</button>';
+    h += '<button class="btn-sm btn-outline" onclick="showAmendArea(\'' + d.id + '\')">Suggest amendment</button>';
+    h += '<button class="btn-sm btn-danger" onclick="rejectDraft(\'' + d.id + '\')">Reject</button>';
+    h += '</div>';
+
+    // Amendment area (hidden by default)
+    h += '<div id="amend-area-' + d.id + '" style="display:none;margin-top:16px">';
+    h += '<div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Tell Moti what to change</div>';
+    h += '<textarea id="amend-text-' + d.id + '" placeholder="e.g. &quot;make it less pitchy&quot;, &quot;mention their boiler servicing line&quot;, &quot;shorten by 30 words&quot;" style="width:100%;min-height:80px;padding:12px;border:2px solid #E2E8F0;border-radius:var(--radius);font-size:14px;font-family:inherit;resize:vertical"></textarea>';
+    h += '<div style="display:flex;gap:8px;margin-top:8px">';
+    h += '<button class="btn-sm btn-teal" onclick="submitAmendment(\'' + d.id + '\')">Ask Moti to rewrite</button>';
+    h += '<button class="btn-sm btn-outline" onclick="document.getElementById(\'amend-area-' + d.id + '\').style.display=\'none\'">Cancel</button>';
+    h += '</div></div>';
+
+    h += '</div>';
+  }
+
+  return h;
+}
+
+// ===== OUTBOX TAB =====
+function renderOutboxTab() {
+  var h = '';
+  var sent = [];
+  for (var i = 0; i < salesData.outreach.length; i++) {
+    var st = salesData.outreach[i].status;
+    if (st === 'sent' || st === 'failed' || st === 'bounced' || st === 'replied' || st === 'opened') {
+      sent.push(salesData.outreach[i]);
+    }
+  }
+
+  // Filter pills
+  h += '<div class="pill-row">';
+  var filters = ['all','sent','failed','bounced','replied'];
+  for (var f = 0; f < filters.length; f++) {
+    h += '<button class="pill' + (outboxFilter === filters[f] ? ' active' : '') + '" onclick="outboxFilter=\'' + filters[f] + '\';renderPage()">' + filters[f].charAt(0).toUpperCase() + filters[f].slice(1) + '</button>';
+  }
+  h += '</div>';
+
+  var filtered = sent;
+  if (outboxFilter !== 'all') {
+    filtered = [];
+    for (var i = 0; i < sent.length; i++) {
+      if (sent[i].status === outboxFilter) filtered.push(sent[i]);
+    }
+  }
+
+  if (filtered.length === 0) {
+    h += '<div class="card"><div class="card-body" style="text-align:center;color:var(--muted);padding:60px">';
+    h += '<div style="font-size:32px;margin-bottom:12px">&#128232;</div>';
+    h += '<div>No emails in outbox' + (outboxFilter !== 'all' ? ' with status "' + outboxFilter + '"' : '') + '.</div>';
+    h += '</div></div>';
+    return h;
+  }
+
+  for (var i = 0; i < filtered.length; i++) {
+    var em = filtered[i];
+    var lead = null;
+    for (var j = 0; j < salesData.leads.length; j++) {
+      if (salesData.leads[j].id === em.lead_id) { lead = salesData.leads[j]; break; }
+    }
+    var leadName = lead ? (lead.business_name || 'Unknown') : 'Unknown';
+    var toEmail = lead ? (lead.email || '') : '';
+    var badgeColor = em.status === 'sent' ? 'background:#ECFDF5;color:#059669' : em.status === 'failed' ? 'background:#FEE2E2;color:#DC2626' : em.status === 'bounced' ? 'background:#FEF3C7;color:#D97706' : em.status === 'replied' ? 'background:#DBEAFE;color:#1D4ED8' : 'background:#F1F5F9;color:var(--muted)';
+
+    h += '<div class="outbox-item">';
+    h += '<div class="oi-info">';
+    h += '<div class="oi-name">' + leadName + '</div>';
+    h += '<div class="oi-subject">' + (em.subject || 'No subject') + '</div>';
+    h += '<div class="oi-meta">To ' + toEmail + ' &middot; ' + (em.email_type || '').replace(/_/g, ' ') + ' &middot; ' + (em.sent_at ? fmtDate(em.sent_at) : 'Drafted ' + fmtDate(em.created_at)) + '</div>';
+    h += '</div>';
+    h += '<span style="display:inline-block;padding:4px 10px;border-radius:20px;font-size:11px;font-weight:700;' + badgeColor + '">' + (em.status || '').toUpperCase() + '</span>';
+    h += '<button class="btn-sm btn-outline" onclick="viewLeadHistory(\'' + em.lead_id + '\')">View thread</button>';
+    h += '</div>';
+  }
+
+  return h;
+}
+
+// ===== LEAD COMPLETE TAB =====
+function renderLeadCompleteTab(followUpsDue) {
+  var h = '';
+
+  h += '<div style="background:#F0FDF4;border:1px solid #D1FAE5;border-radius:var(--radius);padding:14px 20px;margin-bottom:20px;font-size:14px;color:#065F46">';
+  h += '<strong>Lead complete.</strong> Every lead Moti has already emailed lives here so the main Leads tray stays focused on who still needs first contact. Use the pills to slice by outcome — chase the warm ones, archive the cold ones.';
+  h += '</div>';
+
+  // Filter pills
+  h += '<div class="pill-row">';
+  var filters = ['all','contacted','replied','signed_up','declined'];
+  var filterLabels = ['All deployed','Contacted','Replied','Signed Up','Declined'];
+  for (var f = 0; f < filters.length; f++) {
+    h += '<button class="pill' + (lcFilter === filters[f] ? ' active' : '') + '" onclick="lcFilter=\'' + filters[f] + '\';renderPage()">' + filterLabels[f] + '</button>';
+  }
+  h += '</div>';
+
+  var leads = [];
+  for (var i = 0; i < salesData.leads.length; i++) {
+    var st = salesData.leads[i].status || 'new';
+    if (st === 'contacted' || st === 'replied' || st === 'signed_up' || st === 'declined') {
+      if (lcFilter === 'all' || st === lcFilter) leads.push(salesData.leads[i]);
+    }
+  }
+
+  if (leads.length === 0) {
+    h += '<div class="card"><div class="card-body" style="text-align:center;color:var(--muted);padding:60px">';
+    h += '<div>No leads with status "' + (lcFilter === 'all' ? 'contacted/replied/signed up' : lcFilter.replace(/_/g, ' ')) + '" yet.</div>';
+    h += '</div></div>';
+    return h;
+  }
+
+  for (var i = 0; i < leads.length; i++) {
+    var l = leads[i];
+    var ls = l.status;
+    var emails = getLeadOutreach(l.id).filter(function(e) { return e.status === 'sent'; });
+    var isDue = false;
+    for (var d = 0; d < followUpsDue.length; d++) {
+      if (followUpsDue[d].lead.id === l.id) { isDue = true; break; }
+    }
+    var badgeColor = ls === 'contacted' ? 'background:#FEF3C7;color:#D97706' : ls === 'replied' ? 'background:#ECFDF5;color:#059669' : ls === 'signed_up' ? 'background:#F0FDFA;color:#0D9488' : 'background:#FEE2E2;color:#DC2626';
+
+    h += '<div class="lc-item">';
+    h += '<div class="lc-info">';
+    h += '<div class="lc-name">' + (l.business_name || 'Unknown') + '</div>';
+    h += '<div class="lc-meta">';
+    if (l.email) h += l.email + ' &middot; ';
+    if (l.trade) h += l.trade.replace(/_/g, ' ') + ' &middot; ';
+    if (l.location) h += l.location;
+    h += '</div>';
+    if (isDue) h += '<div class="lc-meta" style="color:var(--orange);font-weight:600">Follow-up due</div>';
+    if (emails.length > 0) h += '<div class="lc-meta">' + emails.length + ' email' + (emails.length > 1 ? 's' : '') + ' sent</div>';
+    h += '</div>';
+
+    h += '<span style="display:inline-block;padding:4px 10px;border-radius:20px;font-size:11px;font-weight:700;' + badgeColor + '">' + ls.replace(/_/g, ' ').toUpperCase() + '</span>';
+
+    h += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
+    h += '<button class="btn-sm btn-outline" onclick="viewLeadHistory(\'' + l.id + '\')">View thread</button>';
+    if (ls === 'contacted') {
+      h += '<button class="btn-sm btn-green" onclick="markLeadStatus(\'' + l.id + '\',\'replied\')">Mark replied</button>';
+      h += '<button class="btn-sm btn-danger" onclick="markLeadStatus(\'' + l.id + '\',\'declined\')">Not interested</button>';
+    } else if (ls === 'replied') {
+      h += '<button class="btn-sm btn-teal" onclick="markLeadStatus(\'' + l.id + '\',\'signed_up\')">Signed Up!</button>';
+      h += '<button class="btn-sm btn-danger" onclick="markLeadStatus(\'' + l.id + '\',\'declined\')">Not interested</button>';
+    } else if (ls === 'declined') {
+      h += '<button class="btn-sm btn-outline" onclick="markLeadStatus(\'' + l.id + '\',\'new\')">&#8635; Reactivate</button>';
+    }
+    h += '</div></div>';
+  }
+
+  return h;
+}
+
+// ===== INSIGHTS TAB =====
+function renderInsightsTab() {
+  var leads = salesData.leads;
+  var outreach = salesData.outreach;
+  var h = '';
+
+  // Count funnel stages
+  var total = leads.length;
+  var researched = 0, drafted = 0, sent = 0, replied = 0, customer = 0;
+  for (var i = 0; i < leads.length; i++) {
+    if (leads[i].research_status === 'completed' || leads[i].research_status === 'approved') researched++;
+    var st = leads[i].status || 'new';
+    if (st === 'replied') replied++;
+    if (st === 'signed_up') customer++;
+  }
+  for (var i = 0; i < outreach.length; i++) {
+    if (outreach[i].status === 'draft') drafted++;
+    if (outreach[i].status === 'sent') sent++;
+  }
+
+  // Conversion funnel
+  h += '<div class="card" style="margin-bottom:24px"><div class="card-header"><h2>Conversion funnel</h2></div><div class="card-body">';
+  var maxVal = Math.max(total, 1);
+  var funnelData = [
+    {label: 'Leads', val: total, pct: '—'},
+    {label: 'Researched', val: researched, pct: total > 0 ? Math.round(researched / total * 100) + '%' : '0%'},
+    {label: 'Drafted', val: drafted, pct: total > 0 ? Math.round(drafted / total * 100) + '%' : '0%'},
+    {label: 'Sent', val: sent, pct: total > 0 ? Math.round(sent / total * 100) + '%' : '0%'},
+    {label: 'Replied', val: replied, pct: sent > 0 ? Math.round(replied / sent * 100) + '%' : '0%'},
+    {label: 'Customer', val: customer, pct: sent > 0 ? Math.round(customer / sent * 100) + '%' : '—'}
+  ];
+  for (var f = 0; f < funnelData.length; f++) {
+    var fd = funnelData[f];
+    var barW = maxVal > 0 ? Math.max((fd.val / maxVal) * 100, fd.val > 0 ? 2 : 0) : 0;
+    h += '<div class="funnel-row">';
+    h += '<div class="funnel-label">' + fd.label + '</div>';
+    h += '<div class="funnel-bar-wrap"><div class="funnel-bar" style="width:' + barW + '%"></div></div>';
+    h += '<div class="funnel-val">' + fd.val + '</div>';
+    h += '<div class="funnel-pct" style="color:' + (fd.pct !== '—' && fd.pct !== '0%' ? 'var(--green)' : 'var(--muted)') + '">' + fd.pct + '</div>';
+    h += '</div>';
+  }
+  h += '</div></div>';
+
+  // Insight cards
+  h += '<div class="insight-grid">';
+
+  // Hot leads
+  var hotLeads = [];
+  for (var i = 0; i < leads.length; i++) {
+    if (leads[i].research_status === 'completed' && leads[i].research_data && leads[i].research_data.fit_score >= 7) hotLeads.push(leads[i]);
+  }
+  h += '<div class="insight-card"><h4>&#128293; Hot leads (fit 7+)</h4>';
+  if (hotLeads.length === 0) {
+    h += '<div style="text-align:center;color:var(--muted);padding:20px;font-size:13px">No high-fit leads yet. Research more leads to find hot prospects.</div>';
+  } else {
+    for (var i = 0; i < Math.min(hotLeads.length, 5); i++) {
+      var hl = hotLeads[i];
+      h += '<div style="padding:8px 0;border-bottom:1px solid #F1F5F9;font-size:13px"><strong>' + (hl.business_name || '') + '</strong> — fit ' + (hl.research_data.fit_score || 0) + '/10</div>';
+    }
+  }
+  h += '</div>';
+
+  // Replied - needs action
+  var needsAction = [];
+  for (var i = 0; i < leads.length; i++) {
+    if (leads[i].status === 'replied') needsAction.push(leads[i]);
+  }
+  h += '<div class="insight-card"><h4>&#128172; Replied — needs action</h4>';
+  if (needsAction.length === 0) {
+    h += '<div style="text-align:center;color:var(--muted);padding:20px;font-size:13px">No replies pending action.</div>';
+  } else {
+    for (var i = 0; i < Math.min(needsAction.length, 5); i++) {
+      h += '<div style="padding:8px 0;border-bottom:1px solid #F1F5F9;font-size:13px"><strong>' + (needsAction[i].business_name || '') + '</strong> — ' + (needsAction[i].location || '') + '</div>';
+    }
+  }
+  h += '</div>';
+
+  // No email leads
+  var noEmailCount = 0;
+  for (var i = 0; i < leads.length; i++) {
+    if (!leads[i].email) noEmailCount++;
+  }
+  h += '<div class="insight-card"><h4>&#9888; No email address</h4>';
+  h += '<div style="font-size:32px;font-weight:800;color:var(--orange);margin-bottom:4px">' + noEmailCount + '</div>';
+  h += '<div style="font-size:13px;color:var(--muted)">leads without email — research their websites to find contact details</div>';
+  h += '</div>';
+
+  h += '</div>';
+
+  // Trade breakdown
+  h += '<div class="card"><div class="card-header"><h2>&#9881; Trade breakdown</h2></div><div class="card-body">';
+  var trades = {};
+  for (var i = 0; i < leads.length; i++) {
+    var tr = leads[i].trade || 'unknown';
+    if (!trades[tr]) trades[tr] = {total: 0, contacted: 0};
+    trades[tr].total++;
+    var st = leads[i].status || 'new';
+    if (st === 'contacted' || st === 'replied' || st === 'signed_up') trades[tr].contacted++;
+  }
+  for (var tr in trades) {
+    var pct = trades[tr].total > 0 ? Math.round(trades[tr].contacted / trades[tr].total * 100) : 0;
+    h += '<div style="display:flex;align-items:center;padding:10px 0;border-bottom:1px solid #F1F5F9">';
+    h += '<div style="font-weight:700;min-width:180px">' + tr.replace(/_/g, ' ') + '</div>';
+    h += '<div style="color:var(--muted);font-size:13px">' + trades[tr].total + ' leads &middot; ' + pct + '% engaged</div>';
+    h += '</div>';
+  }
+  h += '</div></div>';
+
+  return h;
+}
+
+// ===== RESEARCH ACTIONS =====
+function researchLead(leadId) {
+  var lead = null;
+  for (var i = 0; i < salesData.leads.length; i++) {
+    if (salesData.leads[i].id === leadId) { lead = salesData.leads[i]; break; }
+  }
+  if (!lead) return;
+
+  // Update UI immediately
+  lead.research_status = 'pending';
+  renderPage();
+
+  fetch(EDGE_URL + '/research-lead', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'apikey': SUPABASE_KEY},
+    body: JSON.stringify({lead: lead})
+  }).then(function(r) { return r.json(); }).then(function(res) {
+    if (res.error) {
+      lead.research_status = null;
+      renderPage();
+      alert('Research failed: ' + res.error);
+      return;
+    }
+    lead.research_data = res.research;
+    lead.research_status = 'completed';
+    lead.researched_at = new Date().toISOString();
+    renderPage();
+    alert('Research complete. Check the Research tab to review and approve.');
+  }).catch(function(err) {
+    lead.research_status = null;
+    renderPage();
+    alert('Failed to reach Moti. Check your connection.');
+    console.log('Research error:', err);
+  });
+}
+
+function approveResearch(leadId) {
+  var lead = null;
+  for (var i = 0; i < salesData.leads.length; i++) {
+    if (salesData.leads[i].id === leadId) { lead = salesData.leads[i]; break; }
+  }
+  if (!lead || !lead.email) { alert('No email address for this lead'); return; }
+
+  // Update research status
+  sb.from('leads').update({research_status: 'approved'}).eq('id', leadId).then(function() {
+    lead.research_status = 'approved';
+  });
+
+  // Show loading indicator
+  alert('Moti is drafting the email... This takes 10-20 seconds. You\'ll get an alert when done.');
+
+  // Call draft-outreach with research data included in the lead
+  var leadWithResearch = {};
+  for (var key in lead) { leadWithResearch[key] = lead[key]; }
+
+  fetch(EDGE_URL + '/draft-outreach', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'apikey': SUPABASE_KEY},
+    body: JSON.stringify({lead: leadWithResearch, email_type: 'initial'})
+  }).then(function(r) { return r.json(); }).then(function(res) {
+    if (res.error) {
+      alert('Draft failed: ' + res.error);
+      return;
+    }
+
+    // Save as draft in outreach_emails
+    var fullBody = res.body_html + SALES_SIGNATURE;
+    sb.from('outreach_emails').insert({
+      lead_id: leadId,
+      subject: res.subject,
+      body_html: fullBody,
+      email_type: 'initial',
+      status: 'draft',
+      followup_number: 0
+    }).select().then(function(insertRes) {
+      if (insertRes.error) { alert('Failed to save draft: ' + insertRes.error.message); return; }
+      salesData.outreach.unshift(insertRes.data[0]);
+      salesSubTab = 'drafts';
+      renderPage();
+      alert('Draft created! Review it in the Drafts tab.');
+    });
+  }).catch(function(err) {
+    alert('Failed to reach Moti for drafting.');
+    console.log('Draft error:', err);
+  });
+}
+
+function rejectResearch(leadId) {
+  if (!confirm('Reject this research? The lead will go back to the Leads tab as unresearched.')) return;
+  sb.from('leads').update({research_status: 'rejected', research_data: null}).eq('id', leadId).then(function(res) {
+    if (res.error) { alert('Error: ' + res.error.message); return; }
+    var lead = null;
+    for (var i = 0; i < salesData.leads.length; i++) {
+      if (salesData.leads[i].id === leadId) { lead = salesData.leads[i]; break; }
+    }
+    if (lead) { lead.research_status = 'rejected'; lead.research_data = null; }
+    renderPage();
+  });
+}
+
+// ===== DRAFT ACTIONS (TAB-BASED) =====
+function approveDraftFromTab(outreachId) {
+  var draft = null;
+  for (var i = 0; i < salesData.outreach.length; i++) {
+    if (salesData.outreach[i].id === outreachId) { draft = salesData.outreach[i]; break; }
+  }
+  if (!draft) return;
+
+  var lead = null;
+  for (var i = 0; i < salesData.leads.length; i++) {
+    if (salesData.leads[i].id === draft.lead_id) { lead = salesData.leads[i]; break; }
+  }
+  if (!lead || !lead.email) { alert('No email for this lead'); return; }
+
+  if (!confirm('Send this email to ' + lead.email + '?')) return;
+
+  // Send the email
+  sendAdminEmail(lead.email, draft.subject, 'generic', {message: draft.body_html});
+
+  // Update outreach status
+  sb.from('outreach_emails').update({status: 'sent', sent_at: new Date().toISOString()}).eq('id', outreachId).then(function(res) {
+    if (res.error) { alert('Error updating status: ' + res.error.message); return; }
+    draft.status = 'sent';
+    draft.sent_at = new Date().toISOString();
+
+    // Update lead status to contacted
+    sb.from('leads').update({status: 'contacted', updated_at: new Date().toISOString()}).eq('id', draft.lead_id).then(function() {
+      if (lead) lead.status = 'contacted';
+      renderPage();
+      alert('Email sent to ' + lead.email + '!');
+    });
+  });
+}
+
+function showAmendArea(outreachId) {
+  var el = document.getElementById('amend-area-' + outreachId);
+  if (el) el.style.display = 'block';
+}
+
+function submitAmendment(outreachId) {
+  var textarea = document.getElementById('amend-text-' + outreachId);
+  if (!textarea || !textarea.value.trim()) { alert('Tell Moti what to change'); return; }
+
+  var draft = null;
+  for (var i = 0; i < salesData.outreach.length; i++) {
+    if (salesData.outreach[i].id === outreachId) { draft = salesData.outreach[i]; break; }
+  }
+  if (!draft) return;
+
+  var lead = null;
+  for (var i = 0; i < salesData.leads.length; i++) {
+    if (salesData.leads[i].id === draft.lead_id) { lead = salesData.leads[i]; break; }
+  }
+  if (!lead) return;
+
+  var feedback = textarea.value.trim();
+  var leadWithContext = {};
+  for (var key in lead) { leadWithContext[key] = lead[key]; }
+  leadWithContext._amendment_feedback = feedback;
+  leadWithContext._original_draft = draft.body_html;
+
+  alert('Moti is rewriting... You\'ll get an alert when done.');
+
+  fetch(EDGE_URL + '/draft-outreach', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'apikey': SUPABASE_KEY},
+    body: JSON.stringify({lead: leadWithContext, email_type: draft.email_type || 'initial'})
+  }).then(function(r) { return r.json(); }).then(function(res) {
+    if (res.error) { alert('Rewrite failed: ' + res.error); return; }
+
+    var fullBody = res.body_html + SALES_SIGNATURE;
+    sb.from('outreach_emails').update({subject: res.subject, body_html: fullBody}).eq('id', outreachId).then(function(upRes) {
+      if (upRes.error) { alert('Failed to save rewrite: ' + upRes.error.message); return; }
+      draft.subject = res.subject;
+      draft.body_html = fullBody;
+      renderPage();
+      alert('Draft rewritten by Moti. Review the updated version.');
+    });
+  }).catch(function(err) {
+    alert('Failed to reach Moti for rewrite.');
+    console.log('Amendment error:', err);
+  });
+}
+
+function rejectDraft(outreachId) {
+  if (!confirm('Reject this draft? It will be removed.')) return;
+  sb.from('outreach_emails').update({status: 'rejected'}).eq('id', outreachId).then(function(res) {
+    if (res.error) { alert('Error: ' + res.error.message); return; }
+    for (var i = 0; i < salesData.outreach.length; i++) {
+      if (salesData.outreach[i].id === outreachId) { salesData.outreach[i].status = 'rejected'; break; }
+    }
+    renderPage();
+  });
+}
+
+// ===== OUTREACH EMAIL TEMPLATES =====
+function buildOutreachEmail(lead, emailType) {
+  var biz = lead.business_name || 'there';
+  var contact = lead.contact_name ? lead.contact_name.split(' ')[0] : biz;
+  var signupUrl = window.location.origin + '/app.html';
+  var subject, body;
+
+  if (emailType === 'initial') {
+    subject = biz + ' — Cut your admin in half with HomeLinq';
+    body = '<div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;max-width:600px;margin:0 auto;color:#1E293B">' +
+      '<div style="background:linear-gradient(135deg,#0D9488,#14B8A6);padding:24px 28px;border-radius:12px 12px 0 0">' +
+      '<h1 style="color:#fff;margin:0;font-size:22px">HomeLinq</h1>' +
+      '<p style="color:rgba(255,255,255,.85);margin:4px 0 0;font-size:14px">Built for gas engineers who hate paperwork</p></div>' +
+      '<div style="padding:28px;background:#fff;border:1px solid #E2E8F0;border-top:none;border-radius:0 0 12px 12px">' +
+      '<p style="font-size:16px;line-height:1.6">Hi ' + contact + ',</p>' +
+      '<p style="font-size:15px;line-height:1.6">I am reaching out because HomeLinq was built specifically for gas engineers like you who are tired of spending evenings doing paperwork.</p>' +
+      '<p style="font-size:15px;line-height:1.6"><strong>HomeLinq automatically generates and sends invoices the moment you finish a job.</strong> No typing, no templates, no chasing. It is all done for you.</p>' +
+      '<p style="font-size:15px;line-height:1.6;margin-bottom:4px">What you get:</p>' +
+      '<ul style="font-size:15px;line-height:1.8;padding-left:20px;color:#334155">' +
+      '<li>Auto-invoicing — finish the job, invoice sent automatically</li>' +
+      '<li>CP12 certificates — digital, stored, sent to customers</li>' +
+      '<li>Booking system — customers book you directly, no middleman</li>' +
+      '<li>Customer marketplace — get new leads in your area</li>' +
+      '<li>Accounting dashboard — income, expenses, tax-ready</li></ul>' +
+      '<p style="font-size:15px;line-height:1.6">It is <strong>free to try</strong> — no contracts, no lock-in. Just sign up and see the difference.</p>' +
+      '<div style="text-align:center;margin:28px 0">' +
+      '<a href="' + signupUrl + '" style="display:inline-block;background:#0D9488;color:#fff;padding:14px 32px;border-radius:10px;text-decoration:none;font-weight:700;font-size:16px">Try HomeLinq Free</a></div>' +
+      '<p style="font-size:14px;color:#64748B;line-height:1.5">If you have any questions, just reply to this email — I read every reply personally.</p>' +
+      '<p style="font-size:14px;color:#64748B">Best,<br><strong>Ephriam</strong><br>HomeLinq — Infinite Life Records LTD</p>' +
+      '</div></div>';
+  } else if (emailType === 'followup_1') {
+    subject = 'Quick follow-up — ' + biz;
+    body = '<div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;max-width:600px;margin:0 auto;color:#1E293B;padding:28px">' +
+      '<p style="font-size:15px;line-height:1.6">Hi ' + contact + ',</p>' +
+      '<p style="font-size:15px;line-height:1.6">Just checking my last email did not get buried. HomeLinq handles your invoicing, certificates, and bookings so you can focus on the work.</p>' +
+      '<p style="font-size:15px;line-height:1.6">The biggest thing engineers tell us: <strong>"I used to spend an hour every evening on invoices. Now it is zero."</strong></p>' +
+      '<div style="text-align:center;margin:24px 0">' +
+      '<a href="' + signupUrl + '" style="display:inline-block;background:#0D9488;color:#fff;padding:12px 28px;border-radius:10px;text-decoration:none;font-weight:700;font-size:15px">Try HomeLinq Free</a></div>' +
+      '<p style="font-size:14px;color:#64748B">Ephriam — HomeLinq</p></div>';
+  } else if (emailType === 'followup_2') {
+    subject = 'Gas engineers save 5+ hours a week with HomeLinq';
+    body = '<div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;max-width:600px;margin:0 auto;color:#1E293B;padding:28px">' +
+      '<p style="font-size:15px;line-height:1.6">Hi ' + contact + ',</p>' +
+      '<p style="font-size:15px;line-height:1.6">One more thought — engineers using HomeLinq tell us they save 5+ hours a week on admin. That is an extra half-day you could be earning or spending with family.</p>' +
+      '<p style="font-size:15px;line-height:1.6">Here is what happens when you finish a job on HomeLinq:</p>' +
+      '<ol style="font-size:15px;line-height:1.8;padding-left:20px;color:#334155">' +
+      '<li>You tap "Complete" on your phone</li>' +
+      '<li>Invoice is auto-generated with the right amount</li>' +
+      '<li>Customer gets it by email instantly</li>' +
+      '<li>Your books are updated automatically</li>' +
+      '<li>Late payments get chased for you</li></ol>' +
+      '<p style="font-size:15px;line-height:1.6">That is it. No spreadsheets, no templates, no chasing.</p>' +
+      '<div style="text-align:center;margin:24px 0">' +
+      '<a href="' + signupUrl + '" style="display:inline-block;background:#0D9488;color:#fff;padding:12px 28px;border-radius:10px;text-decoration:none;font-weight:700;font-size:15px">See It in Action</a></div>' +
+      '<p style="font-size:14px;color:#64748B">Ephriam — HomeLinq</p></div>';
+  } else {
+    subject = 'Last note from HomeLinq — ' + biz;
+    body = '<div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;max-width:600px;margin:0 auto;color:#1E293B;padding:28px">' +
+      '<p style="font-size:15px;line-height:1.6">Hi ' + contact + ',</p>' +
+      '<p style="font-size:15px;line-height:1.6">This will be my last email — I do not want to be a nuisance. I genuinely think HomeLinq could save you hours every week and help you get more customers through our marketplace.</p>' +
+      '<p style="font-size:15px;line-height:1.6">If you are ever curious, the offer is always open: <a href="' + signupUrl + '" style="color:#0D9488;font-weight:600">homelinq.co.uk</a></p>' +
+      '<p style="font-size:15px;line-height:1.6">And if you would prefer a quick chat instead of signing up cold, just reply to this email and we can arrange a 5-minute call.</p>' +
+      '<p style="font-size:14px;color:#64748B;margin-top:20px">All the best,<br><strong>Ephriam</strong><br>HomeLinq — Infinite Life Records LTD</p></div>';
+  }
+
+  return {subject: subject, body: body};
+}
+
+// ===== SEND OUTREACH =====
+// Legacy template-based send functions (kept as fallback, now with signature)
+function sendOutreach(leadId) {
+  var lead = salesData.leads.find(function(l) { return l.id === leadId; });
+  if (!lead || !lead.email) { alert('No email address for this lead'); return; }
+  if (!confirm('Send template pitch to ' + lead.email + '? (Use "Draft Email" for AI-personalised version)')) return;
+
+  var email = buildOutreachEmail(lead, 'initial');
+  var fullBody = email.body + SALES_SIGNATURE;
+
+  sb.from('outreach_emails').insert({
+    lead_id: leadId,
+    subject: email.subject,
+    body_html: fullBody,
+    email_type: 'initial',
+    status: 'pending',
+    followup_number: 0
+  }).select().then(function(insertRes) {
+    if (insertRes.error) { alert('Failed to record email: ' + insertRes.error.message); return; }
+    var outreachId = insertRes.data[0].id;
+
+    sendAdminEmail(lead.email, email.subject, 'generic', {message: fullBody});
+
+    sb.from('outreach_emails').update({status: 'sent', sent_at: new Date().toISOString()}).eq('id', outreachId).then(function() {
+      sb.from('leads').update({status: 'contacted', updated_at: new Date().toISOString()}).eq('id', leadId).then(function() {
+        var localLead = salesData.leads.find(function(l) { return l.id === leadId; });
+        if (localLead) localLead.status = 'contacted';
+        salesData.outreach.push({id: outreachId, lead_id: leadId, subject: email.subject, email_type: 'initial', status: 'sent', sent_at: new Date().toISOString(), followup_number: 0, created_at: new Date().toISOString()});
+        renderPage();
+        alert('Outreach email sent to ' + lead.email);
+      });
+    });
+  });
+}
+
+function sendFollowUp(leadId) {
+  var lead = salesData.leads.find(function(l) { return l.id === leadId; });
+  if (!lead || !lead.email) return;
+  var sentEmails = getLeadOutreach(leadId).filter(function(o) { return o.status === 'sent'; });
+  var followupNum = sentEmails.length;
+  if (followupNum > 3) { alert('All follow-ups already sent'); return; }
+
+  var emailType = 'followup_' + followupNum;
+  var email = buildOutreachEmail(lead, emailType);
+  var fullBody = email.body + SALES_SIGNATURE;
+
+  sb.from('outreach_emails').insert({
+    lead_id: leadId,
+    subject: email.subject,
+    body_html: fullBody,
+    email_type: emailType,
+    status: 'pending',
+    followup_number: followupNum
+  }).select().then(function(insertRes) {
+    if (insertRes.error) { alert('Failed to record follow-up: ' + insertRes.error.message); return; }
+    var outreachId = insertRes.data[0].id;
+
+    sendAdminEmail(lead.email, email.subject, 'generic', {message: fullBody});
+
+    sb.from('outreach_emails').update({status: 'sent', sent_at: new Date().toISOString()}).eq('id', outreachId).then(function() {
+      salesData.outreach.push({id: outreachId, lead_id: leadId, subject: email.subject, email_type: emailType, status: 'sent', sent_at: new Date().toISOString(), followup_number: followupNum, created_at: new Date().toISOString()});
+      renderPage();
+    });
+  });
+}
+
+function sendAllFollowUps() {
+  var due = getFollowUpsDue();
+  if (due.length === 0) { alert('No follow-ups due'); return; }
+  if (!confirm('Send ' + due.length + ' follow-up email' + (due.length > 1 ? 's' : '') + ' using standard templates?')) return;
+
+  var sent = 0;
+  due.forEach(function(item) {
+    var emailType = 'followup_' + item.followupNum;
+    var email = buildOutreachEmail(item.lead, emailType);
+    var fullBody = email.body + SALES_SIGNATURE;
+
+    sb.from('outreach_emails').insert({
+      lead_id: item.lead.id,
+      subject: email.subject,
+      body_html: fullBody,
+      email_type: emailType,
+      status: 'pending',
+      followup_number: item.followupNum
+    }).select().then(function(insertRes) {
+      if (insertRes.error) return;
+      var outreachId = insertRes.data[0].id;
+
+      sendAdminEmail(item.lead.email, email.subject, 'generic', {message: fullBody});
+
+      sb.from('outreach_emails').update({status: 'sent', sent_at: new Date().toISOString()}).eq('id', outreachId).then(function() {
+        salesData.outreach.push({id: outreachId, lead_id: item.lead.id, subject: email.subject, email_type: emailType, status: 'sent', sent_at: new Date().toISOString(), followup_number: item.followupNum, created_at: new Date().toISOString()});
+        sent++;
+        if (sent >= due.length) {
+          renderPage();
+          alert(sent + ' follow-up email' + (sent > 1 ? 's' : '') + ' sent!');
+        }
+      });
+    });
+  });
+}
+
+// ===== MOTI AI DRAFTING =====
+var _draftState = {leadId: null, emailType: null, subject: '', bodyHtml: '', editing: false};
+
+function draftOutreachEmail(leadId, emailType) {
+  var lead = salesData.leads.find(function(l) { return l.id === leadId; });
+  if (!lead || !lead.email) { alert('No email address for this lead'); return; }
+
+  // Show loading modal
+  var overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'draftModal';
+  overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = '<div class="modal-box draft-modal">' +
+    '<div class="draft-moti-badge"><span style="font-size:14px">&#129302;</span> Moti AI</div>' +
+    '<h2>Drafting email for ' + (lead.business_name || 'lead') + '</h2>' +
+    '<div class="draft-loading">' +
+    '<div class="spinner"></div>' +
+    '<div style="color:var(--muted);font-size:14px">Moti is writing a personalised ' + emailType.replace(/_/g, ' ') + ' email...</div>' +
+    '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+
+  // Call draft-outreach edge function
+  fetch(EDGE_URL + '/draft-outreach', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'apikey': SUPABASE_KEY},
+    body: JSON.stringify({lead: lead, email_type: emailType})
+  }).then(function(r) { return r.json(); }).then(function(res) {
+    if (res.error) {
+      overlay.remove();
+      alert('Moti could not draft the email: ' + res.error);
+      return;
+    }
+    // Store draft state
+    _draftState.leadId = leadId;
+    _draftState.emailType = emailType;
+    _draftState.subject = res.subject;
+    _draftState.bodyHtml = res.body_html;
+    _draftState.editing = false;
+
+    // Show review modal
+    showDraftReviewModal(lead);
+  }).catch(function(err) {
+    overlay.remove();
+    alert('Failed to reach Moti. Please check your connection and try again.');
+    console.log('Draft error:', err);
+  });
+}
+
+function showDraftReviewModal(lead) {
+  var overlay = document.getElementById('draftModal');
+  if (!overlay) return;
+
+  var bodyWithSig = _draftState.bodyHtml + SALES_SIGNATURE;
+
+  var h = '<div class="modal-box draft-modal">';
+  h += '<div class="draft-moti-badge"><span style="font-size:14px">&#129302;</span> Drafted by Moti AI</div>';
+  h += '<h2>Review email for ' + (lead.business_name || 'lead') + '</h2>';
+  h += '<div style="font-size:13px;color:var(--muted);margin-bottom:4px">To: ' + lead.email + '</div>';
+
+  // Subject line (editable)
+  h += '<div class="draft-label">Subject</div>';
+  h += '<input type="text" class="draft-subject" id="draft-subject" value="' + _draftState.subject.replace(/"/g, '&quot;') + '">';
+
+  // Email preview
+  h += '<div class="draft-label">Email Preview</div>';
+  h += '<div class="draft-preview" id="draft-preview">' + bodyWithSig + '</div>';
+
+  // Edit area (hidden by default)
+  h += '<textarea class="draft-edit-area" id="draft-edit-area">' + _draftState.bodyHtml.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</textarea>';
+
+  // Actions
+  h += '<div class="modal-actions">';
+  h += '<button class="btn-sm btn-teal" onclick="approveDraft()" id="draft-approve-btn">Approve &amp; Send</button>';
+  h += '<button class="btn-sm btn-purple" onclick="toggleDraftEdit()" id="draft-edit-btn">Edit HTML</button>';
+  h += '<button class="btn-sm btn-blue" onclick="redraftEmail()" id="draft-redraft-btn">Redraft</button>';
+  h += '<button class="btn-sm btn-outline" onclick="document.getElementById(\'draftModal\').remove()">Discard</button>';
+  h += '</div>';
+  h += '</div>';
+
+  overlay.innerHTML = h;
+}
+
+function toggleDraftEdit() {
+  var preview = document.getElementById('draft-preview');
+  var editArea = document.getElementById('draft-edit-area');
+  var editBtn = document.getElementById('draft-edit-btn');
+  if (!preview || !editArea) return;
+
+  if (_draftState.editing) {
+    // Save edits and show preview
+    _draftState.bodyHtml = editArea.value;
+    preview.innerHTML = _draftState.bodyHtml + SALES_SIGNATURE;
+    preview.style.display = '';
+    editArea.style.display = 'none';
+    editBtn.textContent = 'Edit HTML';
+    _draftState.editing = false;
+  } else {
+    // Show editor
+    editArea.value = _draftState.bodyHtml;
+    preview.style.display = 'none';
+    editArea.style.display = 'block';
+    editBtn.textContent = 'Preview';
+    _draftState.editing = true;
+  }
+}
+
+function redraftEmail() {
+  var lead = salesData.leads.find(function(l) { return l.id === _draftState.leadId; });
+  if (!lead) return;
+  document.getElementById('draftModal').remove();
+  draftOutreachEmail(_draftState.leadId, _draftState.emailType);
+}
+
+function approveDraft() {
+  var leadId = _draftState.leadId;
+  var emailType = _draftState.emailType;
+  var lead = salesData.leads.find(function(l) { return l.id === leadId; });
+  if (!lead || !lead.email) return;
+
+  // If editing, save the HTML first
+  if (_draftState.editing) {
+    var editArea = document.getElementById('draft-edit-area');
+    if (editArea) _draftState.bodyHtml = editArea.value;
+  }
+
+  // Get subject from the input
+  var subjectEl = document.getElementById('draft-subject');
+  var subject = subjectEl ? subjectEl.value.trim() : _draftState.subject;
+  if (!subject) { alert('Subject cannot be empty'); return; }
+
+  // Append signature to the body
+  var fullBody = _draftState.bodyHtml + SALES_SIGNATURE;
+
+  // Disable button
+  var btn = document.getElementById('draft-approve-btn');
+  if (btn) { btn.textContent = 'Sending...'; btn.disabled = true; }
+
+  // Determine follow-up number
+  var followupNum = 0;
+  if (emailType === 'followup_1') followupNum = 1;
+  else if (emailType === 'followup_2') followupNum = 2;
+  else if (emailType === 'followup_3') followupNum = 3;
+
+  // Record in outreach_emails
+  sb.from('outreach_emails').insert({
+    lead_id: leadId,
+    subject: subject,
+    body_html: fullBody,
+    email_type: emailType,
+    status: 'pending',
+    followup_number: followupNum
+  }).select().then(function(insertRes) {
+    if (insertRes.error) {
+      alert('Failed to record email: ' + insertRes.error.message);
+      if (btn) { btn.textContent = 'Approve & Send'; btn.disabled = false; }
+      return;
+    }
+    var outreachId = insertRes.data[0].id;
+
+    // Send via send-email edge function
+    sendAdminEmail(lead.email, subject, 'generic', {message: fullBody});
+
+    // Mark as sent
+    sb.from('outreach_emails').update({status: 'sent', sent_at: new Date().toISOString()}).eq('id', outreachId).then(function() {
+      // Update lead status if initial pitch
+      var newStatus = (emailType === 'initial') ? 'contacted' : lead.status;
+      if (newStatus !== lead.status) {
+        sb.from('leads').update({status: newStatus, updated_at: new Date().toISOString()}).eq('id', leadId).then(function() {
+          var localLead = salesData.leads.find(function(l) { return l.id === leadId; });
+          if (localLead) localLead.status = newStatus;
+          finishDraftSend(outreachId, leadId, subject, emailType, followupNum, lead.email);
+        });
+      } else {
+        finishDraftSend(outreachId, leadId, subject, emailType, followupNum, lead.email);
+      }
+    });
+  });
+}
+
+function finishDraftSend(outreachId, leadId, subject, emailType, followupNum, toEmail) {
+  salesData.outreach.push({id: outreachId, lead_id: leadId, subject: subject, email_type: emailType, status: 'sent', sent_at: new Date().toISOString(), followup_number: followupNum, created_at: new Date().toISOString()});
+  var modal = document.getElementById('draftModal');
+  if (modal) modal.remove();
+  renderPage();
+  alert('Email sent to ' + toEmail);
+}
+
+// ===== LEAD MANAGEMENT =====
+function markLeadStatus(leadId, newStatus) {
+  sb.from('leads').update({status: newStatus, updated_at: new Date().toISOString()}).eq('id', leadId).then(function(res) {
+    if (res.error) { alert('Error: ' + res.error.message); return; }
+    var localLead = salesData.leads.find(function(l) { return l.id === leadId; });
+    if (localLead) localLead.status = newStatus;
+    renderPage();
+  });
+}
+
+function deleteLead(leadId) {
+  if (!confirm('Delete this lead? This cannot be undone.')) return;
+  sb.from('leads').delete().eq('id', leadId).then(function(res) {
+    if (res.error) { alert('Error: ' + res.error.message); return; }
+    salesData.leads = salesData.leads.filter(function(l) { return l.id !== leadId; });
+    salesData.outreach = salesData.outreach.filter(function(o) { return o.lead_id !== leadId; });
+    renderPage();
+  });
+}
+
+function viewLeadHistory(leadId) {
+  var lead = salesData.leads.find(function(l) { return l.id === leadId; });
+  if (!lead) return;
+  var emails = getLeadOutreach(leadId).sort(function(a,b) { return new Date(b.created_at) - new Date(a.created_at); });
+
+  var overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+
+  var h = '<div class="modal-box">';
+  h += '<h2>' + (lead.business_name || 'Lead') + ' — Outreach History</h2>';
+  h += '<div style="margin-bottom:16px">';
+  if (lead.contact_name) h += '<div><strong>Contact:</strong> ' + lead.contact_name + '</div>';
+  if (lead.email) h += '<div><strong>Email:</strong> ' + lead.email + '</div>';
+  if (lead.phone) h += '<div><strong>Phone:</strong> ' + lead.phone + '</div>';
+  if (lead.location) h += '<div><strong>Location:</strong> ' + lead.location + '</div>';
+  if (lead.gas_safe_number) h += '<div><strong>Gas Safe:</strong> ' + lead.gas_safe_number + '</div>';
+  h += '<div><strong>Status:</strong> ' + (lead.status || 'new') + '</div>';
+  h += '<div><strong>Added:</strong> ' + fmtDate(lead.created_at) + '</div>';
+  if (lead.notes) h += '<div style="margin-top:8px"><strong>Notes:</strong> ' + lead.notes + '</div>';
+  h += '</div>';
+
+  if (emails.length === 0) {
+    h += '<div style="color:var(--muted);text-align:center;padding:20px">No emails sent yet</div>';
+  } else {
+    h += '<div style="font-weight:700;margin-bottom:8px">' + emails.length + ' email' + (emails.length > 1 ? 's' : '') + ' sent</div>';
+    for (var i = 0; i < emails.length; i++) {
+      var em = emails[i];
+      h += '<div class="oh-item ' + (em.status || 'pending') + '">';
+      h += '<div class="oh-date">' + fmtDateTime(em.sent_at || em.created_at) + ' — ' + (em.email_type || 'unknown').replace(/_/g, ' ') + '</div>';
+      h += '<div class="oh-subject">' + (em.subject || 'No subject') + '</div>';
+      h += '<div style="font-size:12px;color:var(--muted);margin-top:2px">Status: ' + (em.status || 'pending') + '</div>';
+      h += '</div>';
+    }
+  }
+
+  h += '<div class="modal-actions"><button class="btn-sm btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div>';
+  h += '</div>';
+
+  overlay.innerHTML = h;
+  document.body.appendChild(overlay);
+}
+
+// ===== ADD LEAD MODAL =====
+function showAddLeadModal() {
+  var overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'addLeadModal';
+  overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+
+  overlay.innerHTML = '<div class="modal-box">' +
+    '<h2>Add Lead</h2>' +
+    '<label>Business Name *</label><input type="text" id="lead-biz">' +
+    '<label>Contact Name</label><input type="text" id="lead-contact">' +
+    '<label>Email</label><input type="email" id="lead-email">' +
+    '<label>Phone</label><input type="text" id="lead-phone">' +
+    '<label>Trade</label><select id="lead-trade"><option value="gas_engineer">Gas Engineer</option><option value="plumber">Plumber</option><option value="heating_engineer">Heating Engineer</option><option value="boiler_specialist">Boiler Specialist</option></select>' +
+    '<label>Location / City</label><input type="text" id="lead-location">' +
+    '<label>Postcode</label><input type="text" id="lead-postcode">' +
+    '<label>Gas Safe Number</label><input type="text" id="lead-gassafe">' +
+    '<label>Website</label><input type="text" id="lead-website">' +
+    '<label>Notes</label><textarea id="lead-notes"></textarea>' +
+    '<div class="modal-actions">' +
+    '<button class="btn-sm btn-teal" onclick="saveNewLead()">Save Lead</button>' +
+    '<button class="btn-sm btn-outline" onclick="document.getElementById(\'addLeadModal\').remove()">Cancel</button>' +
+    '</div></div>';
+
+  document.body.appendChild(overlay);
+}
+
+function saveNewLead() {
+  var biz = document.getElementById('lead-biz').value.trim();
+  if (!biz) { alert('Business name is required'); return; }
+
+  var newLead = {
+    business_name: biz,
+    contact_name: document.getElementById('lead-contact').value.trim() || null,
+    email: document.getElementById('lead-email').value.trim() || null,
+    phone: document.getElementById('lead-phone').value.trim() || null,
+    trade: document.getElementById('lead-trade').value,
+    location: document.getElementById('lead-location').value.trim() || null,
+    postcode: document.getElementById('lead-postcode').value.trim() || null,
+    gas_safe_number: document.getElementById('lead-gassafe').value.trim() || null,
+    website: document.getElementById('lead-website').value.trim() || null,
+    notes: document.getElementById('lead-notes').value.trim() || null,
+    source: 'manual',
+    status: 'new'
+  };
+
+  sb.from('leads').insert(newLead).select().then(function(res) {
+    if (res.error) { alert('Error saving lead: ' + res.error.message); return; }
+    salesData.leads.unshift(res.data[0]);
+    document.getElementById('addLeadModal').remove();
+    renderPage();
+  });
+}
+
+// ===== CSV UPLOAD =====
+function showCSVUploadModal() {
+  var overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'csvUploadModal';
+  overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+
+  overlay.innerHTML = '<div class="modal-box">' +
+    '<h2>Upload CSV of Leads</h2>' +
+    '<p style="font-size:13px;color:var(--muted);margin-bottom:16px">CSV should have columns for: business_name, contact_name, email, phone, trade, location, postcode, gas_safe_number. Column headers are matched automatically.</p>' +
+    '<div class="csv-drop" onclick="document.getElementById(\'csv-file\').click()">' +
+    '<div style="font-size:32px;margin-bottom:8px">📄</div>' +
+    '<div style="font-weight:600">Click to select a CSV file</div>' +
+    '<div style="font-size:13px;margin-top:4px">or drag and drop</div>' +
+    '</div>' +
+    '<input type="file" id="csv-file" accept=".csv,.tsv,.txt" style="display:none" onchange="parseCSVFile(this)">' +
+    '<div id="csv-preview" style="margin-top:16px"></div>' +
+    '<div class="modal-actions">' +
+    '<button class="btn-sm btn-teal" id="csv-import-btn" style="display:none" onclick="importCSVLeads()">Import Leads</button>' +
+    '<button class="btn-sm btn-outline" onclick="document.getElementById(\'csvUploadModal\').remove()">Cancel</button>' +
+    '</div></div>';
+
+  document.body.appendChild(overlay);
+}
+
+var _csvParsedRows = [];
+
+function parseCSVFile(input) {
+  var file = input.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var text = e.target.result;
+    var lines = text.split(/\r?\n/).filter(function(l) { return l.trim(); });
+    if (lines.length < 2) { document.getElementById('csv-preview').innerHTML = '<div style="color:var(--red)">CSV appears empty</div>'; return; }
+
+    // Parse header
+    var header = lines[0].split(',').map(function(h) { return h.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_'); });
+
+    // Map columns
+    var colMap = {};
+    var fieldNames = ['business_name','contact_name','email','phone','trade','location','postcode','gas_safe_number'];
+    var aliases = {
+      business_name: ['business_name','business','company','company_name','name','business name','company name'],
+      contact_name: ['contact_name','contact','person','full_name','contact name','first_name','owner'],
+      email: ['email','email_address','e_mail','mail'],
+      phone: ['phone','phone_number','telephone','tel','mobile'],
+      trade: ['trade','type','category','trade_type'],
+      location: ['location','city','area','town','region'],
+      postcode: ['postcode','post_code','zip','zip_code','postal_code'],
+      gas_safe_number: ['gas_safe_number','gas_safe','gassafe','gas_safe_no','registration']
+    };
+
+    for (var f = 0; f < fieldNames.length; f++) {
+      var field = fieldNames[f];
+      var possible = aliases[field];
+      for (var c = 0; c < header.length; c++) {
+        if (possible.indexOf(header[c]) !== -1) { colMap[field] = c; break; }
+      }
+    }
+
+    // Parse rows
+    _csvParsedRows = [];
+    for (var r = 1; r < lines.length; r++) {
+      var cols = lines[r].split(',');
+      var row = {};
+      for (var field in colMap) {
+        row[field] = (cols[colMap[field]] || '').trim().replace(/^"|"$/g, '');
+      }
+      if (row.business_name || row.contact_name || row.email) {
+        row.source = 'csv_upload';
+        row.status = 'new';
+        _csvParsedRows.push(row);
+      }
+    }
+
+    // Show preview
+    var preview = '<div style="font-weight:700;margin-bottom:8px">' + _csvParsedRows.length + ' leads found</div>';
+    preview += '<div style="font-size:13px;color:var(--muted);margin-bottom:8px">Columns mapped: ' + Object.keys(colMap).join(', ') + '</div>';
+    if (_csvParsedRows.length > 0) {
+      preview += '<div style="max-height:200px;overflow-y:auto;border:1px solid #E2E8F0;border-radius:8px;font-size:13px">';
+      var showRows = Math.min(_csvParsedRows.length, 5);
+      for (var p = 0; p < showRows; p++) {
+        var pr = _csvParsedRows[p];
+        preview += '<div style="padding:8px 12px;border-bottom:1px solid #F1F5F9">' +
+          '<strong>' + (pr.business_name || 'Unknown') + '</strong>' +
+          (pr.email ? ' — ' + pr.email : ' — <span style="color:var(--red)">no email</span>') +
+          (pr.location ? ' — ' + pr.location : '') + '</div>';
+      }
+      if (_csvParsedRows.length > 5) {
+        preview += '<div style="padding:8px 12px;color:var(--muted);text-align:center">...and ' + (_csvParsedRows.length - 5) + ' more</div>';
+      }
+      preview += '</div>';
+      document.getElementById('csv-import-btn').style.display = '';
+    }
+    document.getElementById('csv-preview').innerHTML = preview;
+  };
+  reader.readAsText(file);
+}
+
+function importCSVLeads() {
+  if (_csvParsedRows.length === 0) return;
+  var btn = document.getElementById('csv-import-btn');
+  if (btn) { btn.textContent = 'Importing...'; btn.disabled = true; }
+
+  // Check for duplicates by email
+  var existingEmails = {};
+  for (var i = 0; i < salesData.leads.length; i++) {
+    if (salesData.leads[i].email) existingEmails[salesData.leads[i].email.toLowerCase()] = true;
+  }
+
+  var toInsert = _csvParsedRows.filter(function(r) {
+    if (!r.email) return true; // Import even without email
+    return !existingEmails[r.email.toLowerCase()];
+  });
+
+  var skipped = _csvParsedRows.length - toInsert.length;
+
+  if (toInsert.length === 0) {
+    alert('All leads already exist in the database (matched by email). ' + skipped + ' duplicates skipped.');
+    if (btn) { btn.textContent = 'Import Leads'; btn.disabled = false; }
+    return;
+  }
+
+  sb.from('leads').insert(toInsert).select().then(function(res) {
+    if (res.error) { alert('Import error: ' + res.error.message); if (btn) { btn.textContent = 'Import Leads'; btn.disabled = false; } return; }
+    salesData.leads = (res.data || []).concat(salesData.leads);
+    document.getElementById('csvUploadModal').remove();
+    _csvParsedRows = [];
+    renderPage();
+    alert(toInsert.length + ' lead' + (toInsert.length > 1 ? 's' : '') + ' imported!' + (skipped > 0 ? ' (' + skipped + ' duplicate' + (skipped > 1 ? 's' : '') + ' skipped)' : ''));
+  });
+}
+
+// ===== DISCOVER LEADS =====
+var _discoverResults = [];
+
+function toggleDiscoverSection() {
+  var el = document.getElementById('discover-section');
+  if (!el) return;
+  el.classList.toggle('open');
+  if (!el.classList.contains('open')) {
+    // Clear results when closing
+    var res = document.getElementById('discover-results');
+    if (res) res.innerHTML = '';
+  }
+}
+
+function discoverByArea() {
+  var location = document.getElementById('discover-location');
+  var trade = document.getElementById('discover-trade');
+  var count = document.getElementById('discover-count');
+  if (!location || !location.value.trim()) { alert('Enter a town or postcode'); return; }
+
+  var resultsEl = document.getElementById('discover-results');
+  if (!resultsEl) return;
+  resultsEl.innerHTML = '<div class="discover-loading"><div class="spinner"></div><div style="color:var(--muted);font-size:14px">Moti is searching for ' + trade.value.replace(/_/g, ' ') + 's near ' + location.value.trim() + '...</div><div style="color:var(--muted);font-size:12px;margin-top:4px">This can take 30–60 seconds</div></div>';
+
+  fetch(EDGE_URL + '/discover-leads', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'apikey': SUPABASE_KEY},
+    body: JSON.stringify({mode: 'search', location: location.value.trim(), trade: trade.value, count: parseInt(count.value)})
+  }).then(function(r) { return r.json(); }).then(function(res) {
+    if (res.error) { resultsEl.innerHTML = '<div style="color:var(--red);padding:16px">' + res.error + '</div>'; return; }
+    if (!res.leads || res.leads.length === 0) { resultsEl.innerHTML = '<div style="color:var(--muted);padding:16px;text-align:center">' + (res.message || 'No leads found. Try a different location.') + '</div>'; return; }
+    _discoverResults = res.leads;
+    resultsEl.innerHTML = '<div style="color:var(--teal);padding:16px;text-align:center;font-weight:600">' + res.leads.length + ' leads found! Importing...</div>';
+    importDiscoveredLeads(true);
+  }).catch(function(err) {
+    resultsEl.innerHTML = '<div style="color:var(--red);padding:16px">Failed to reach Moti. Check your connection and try again.</div>';
+    console.log('Discover error:', err);
+  });
+}
+
+function discoverByUrls() {
+  var textarea = document.getElementById('discover-urls');
+  if (!textarea || !textarea.value.trim()) { alert('Paste at least one URL or company name'); return; }
+
+  var items = textarea.value.split('\n').map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
+  if (items.length === 0) { alert('No valid entries found'); return; }
+  if (items.length > 10) { alert('Maximum 10 items at a time'); return; }
+
+  var resultsEl = document.getElementById('discover-results');
+  if (!resultsEl) return;
+  resultsEl.innerHTML = '<div class="discover-loading"><div class="spinner"></div><div style="color:var(--muted);font-size:14px">Moti is researching ' + items.length + ' business' + (items.length > 1 ? 'es' : '') + '...</div><div style="color:var(--muted);font-size:12px;margin-top:4px">Each one takes about 20–30 seconds</div></div>';
+
+  fetch(EDGE_URL + '/discover-leads', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'apikey': SUPABASE_KEY},
+    body: JSON.stringify({mode: 'urls', items: items})
+  }).then(function(r) { return r.json(); }).then(function(res) {
+    if (res.error) { resultsEl.innerHTML = '<div style="color:var(--red);padding:16px">' + res.error + '</div>'; return; }
+    if (!res.leads || res.leads.length === 0) { resultsEl.innerHTML = '<div style="color:var(--muted);padding:16px;text-align:center">No business info could be extracted.</div>'; return; }
+    _discoverResults = res.leads;
+    resultsEl.innerHTML = '<div style="color:var(--teal);padding:16px;text-align:center;font-weight:600">' + res.leads.length + ' leads found! Importing...</div>';
+    importDiscoveredLeads(true);
+  }).catch(function(err) {
+    resultsEl.innerHTML = '<div style="color:var(--red);padding:16px">Failed to reach Moti. Check your connection and try again.</div>';
+    console.log('Discover URL error:', err);
+  });
+}
+
+function showDiscoverResults(container) {
+  var h = '<div class="discover-results">';
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">';
+  h += '<div style="font-weight:700;font-size:16px">' + _discoverResults.length + ' lead' + (_discoverResults.length > 1 ? 's' : '') + ' found</div>';
+  h += '<div style="display:flex;gap:8px">';
+  h += '<button class="btn-sm btn-teal" onclick="importDiscoveredLeads(true)">Import All</button>';
+  h += '<button class="btn-sm btn-green" onclick="importDiscoveredLeads(false)">Import Selected</button>';
+  h += '<label style="display:flex;align-items:center;gap:4px;font-size:13px;color:var(--muted);cursor:pointer"><input type="checkbox" id="discover-select-all" onchange="toggleDiscoverSelectAll(this.checked)"> Select all</label>';
+  h += '</div></div>';
+
+  for (var i = 0; i < _discoverResults.length; i++) {
+    var lead = _discoverResults[i];
+    var hasError = lead._status && lead._status !== 'ok';
+    h += '<div class="discover-lead-row' + (hasError ? ' style="opacity:.6"' : '') + '">';
+    h += '<input type="checkbox" class="discover-cb" data-idx="' + i + '"' + (hasError ? '' : ' checked') + '>';
+    h += '<div class="discover-lead-info">';
+    h += '<div class="discover-lead-name">' + (lead.business_name || 'Unknown') + '</div>';
+    h += '<div class="discover-lead-meta">';
+    var metaParts = [];
+    if (lead.contact_name) metaParts.push(lead.contact_name);
+    if (lead.phone) metaParts.push(lead.phone);
+    if (lead.email) metaParts.push(lead.email);
+    else metaParts.push('<span style="color:var(--red)">no email</span>');
+    if (lead.location) metaParts.push(lead.location);
+    if (lead.postcode) metaParts.push(lead.postcode);
+    if (lead.gas_safe_number) metaParts.push('Gas Safe: ' + lead.gas_safe_number);
+    if (lead.website) metaParts.push('<a href="' + lead.website + '" target="_blank" style="color:var(--teal)">website</a>');
+    h += metaParts.join(' &middot; ');
+    if (hasError) h += ' &middot; <span style="color:var(--orange)">' + (lead._status || '').replace(/_/g, ' ') + '</span>';
+    h += '</div></div></div>';
+  }
+
+  h += '</div>';
+  container.innerHTML = h;
+}
+
+function toggleDiscoverSelectAll(checked) {
+  var cbs = document.querySelectorAll('.discover-cb');
+  for (var i = 0; i < cbs.length; i++) {
+    cbs[i].checked = checked;
+  }
+}
+
+function importDiscoveredLeads(importAll) {
+  var toImport = [];
+
+  if (importAll) {
+    toImport = _discoverResults.filter(function(l) { return l.business_name && !l._status; });
+  } else {
+    var cbs = document.querySelectorAll('.discover-cb:checked');
+    for (var i = 0; i < cbs.length; i++) {
+      var idx = parseInt(cbs[i].getAttribute('data-idx'));
+      if (_discoverResults[idx] && _discoverResults[idx].business_name) {
+        toImport.push(_discoverResults[idx]);
+      }
+    }
+  }
+
+  if (toImport.length === 0) { alert('No leads selected for import'); return; }
+
+  // Check for duplicate emails
+  var existingEmails = {};
+  for (var i = 0; i < salesData.leads.length; i++) {
+    if (salesData.leads[i].email) existingEmails[salesData.leads[i].email.toLowerCase()] = true;
+  }
+
+  var rows = [];
+  var skipped = 0;
+  for (var i = 0; i < toImport.length; i++) {
+    var l = toImport[i];
+    if (l.email && existingEmails[l.email.toLowerCase()]) { skipped++; continue; }
+    rows.push({
+      business_name: l.business_name,
+      contact_name: l.contact_name || null,
+      email: l.email || null,
+      phone: l.phone || null,
+      trade: l.trade || 'gas_engineer',
+      location: l.location || null,
+      postcode: l.postcode || null,
+      gas_safe_number: l.gas_safe_number || null,
+      website: l.website || null,
+      source: 'web_discover',
+      status: 'new'
+    });
+  }
+
+  if (rows.length === 0) {
+    alert('All selected leads already exist (matched by email). ' + skipped + ' skipped.');
+    return;
+  }
+
+  sb.from('leads').insert(rows).select().then(function(res) {
+    if (res.error) { alert('Import error: ' + res.error.message); return; }
+    salesData.leads = (res.data || []).concat(salesData.leads);
+    _discoverResults = [];
+    var resultsEl = document.getElementById('discover-results');
+    if (resultsEl) resultsEl.innerHTML = '';
+    toggleDiscoverSection();
+    salesSubTab = 'leads';
+    renderPage();
+    alert(rows.length + ' lead' + (rows.length > 1 ? 's' : '') + ' imported! Click "Research" on each lead to have Moti analyse them.' + (skipped > 0 ? ' (' + skipped + ' duplicate' + (skipped > 1 ? 's' : '') + ' skipped)' : ''));
+  });
+}
+
+// ===== INIT =====
+// Admin requires EXPLICIT login — do NOT piggyback off app.html session.
+// We use sessionStorage to track if admin has authenticated on THIS page.
+var ADMIN_AUTH_KEY = 'homelinq_admin_auth';
+
+// Handle password recovery flow from email link
+sb.auth.onAuthStateChange(function(event, session) {
+  if (event === 'PASSWORD_RECOVERY') {
+    _adminRecovery = true;
+    showAdminPasswordReset();
+  }
+});
+
+sb.auth.getSession().then(function(res) {
+  if (_adminRecovery) return;
+  // Only auto-login if admin explicitly authenticated in this browser tab
+  var adminAuthed = sessionStorage.getItem(ADMIN_AUTH_KEY);
+  if (adminAuthed === 'true' && res.data.session && res.data.session.user && res.data.session.user.email === ADMIN_EMAIL) {
+    currentUser = res.data.session.user;
+    loadDashboard();
+  } else {
+    // Always show login — never auto-enter dashboard from app session
+    renderLogin();
+  }
+});
+</script>
+</body>
+</html>

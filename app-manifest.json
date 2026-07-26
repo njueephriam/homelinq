@@ -1,0 +1,17 @@
+{
+  "name": "HomeLinq Pro",
+  "short_name": "HomeLinq Pro",
+  "description": "Run your gas engineering business — jobs, invoices, quotes and payments, with Moti your AI teammate built in.",
+  "start_url": "app.html",
+  "scope": "./",
+  "id": "homelinq-pro",
+  "display": "standalone",
+  "background_color": "#F8FAFC",
+  "theme_color": "#0D9488",
+  "categories": ["business", "productivity"],
+  "icons": [
+    { "src": "moti/icons/homelinq-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "moti/icons/homelinq-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "moti/icons/homelinq-icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

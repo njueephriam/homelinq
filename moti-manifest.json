@@ -1,0 +1,18 @@
+{
+  "name": "Moti — HomeLinq Assistant",
+  "short_name": "Moti",
+  "description": "Your HomeLinq AI teammate. Give Moti a command and it handles your admin — invoices, quotes, chasing payment and more.",
+  "start_url": "moti.html",
+  "scope": "./",
+  "id": "homelinq-moti",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#15170A",
+  "theme_color": "#1A1C22",
+  "categories": ["business", "productivity"],
+  "icons": [
+    { "src": "moti/icons/moti-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "moti/icons/moti-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "moti/icons/moti-icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
