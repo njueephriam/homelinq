@@ -59,3 +59,23 @@ create policy "Engineers read customers they serve" on public.customers
 --    auth.uid() guard, only links real customer accounts
 --  * send_invoice: sent_date now(), auth.uid() guard, never wipes customer link, only links real customers
 --  * general_expenses: added category column + trigger filling hmrc_category (also fixes Moti log_expense)
+
+-- 15 Nov 2026 (0.2c SECURITY, applied live): migration "security_lockdown_definer_functions"
+--  * helpers public.is_service_role(), public.is_admin()
+--  * every SECURITY DEFINER app function now starts with
+--      IF NOT (is_service_role() OR <caller owns the data>) THEN RAISE 'Not authorised'
+--  * EXECUTE revoked from anon/PUBLIC on all of them except get_feed, get_post_comments (public feed)
+--  * record_payment, update_stripe_account: service role only
+--  * duplicate save_quote (jsonb version) dropped; text version casts jsonb/timestamptz
+--  * save_mileage date cast + trigger mileage_log_sync_columns (two sets of columns kept in sync)
+--  * update_quote_by_number only matches the caller's own quotes; update_job_status enum cast
+--  * default privileges: new functions not executable by anon
+-- Edge functions: send-email v31 (approved engineers/admin only; generic renders safe HTML),
+--                 moti-engineer v17 (emails sent with the engineer's own login)
+
+-- 15 Nov 2026 (0.2d, applied live): migration "fix_0_2d_emergency_numbering_verification"
+--  * price_type enum gains 'out_of_hours' (emergency bookings now create marketplace jobs)
+--  * duplicate invoice/quote numbers renamed with -B,-C...; unique (engineer_id, number) indexes
+--  * next_invoice_number(); triggers auto-number invoices/quotes when number is blank
+--  * complete_job: proper numbering, VAT only if engineer vat_registered
+--  * private storage bucket 'verification-docs' (engineer uploads to own folder; admin can read)

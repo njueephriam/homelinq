@@ -747,6 +747,7 @@ function loadEngineerData() {
         allJobs[dateKey].push(loadedJob);
       });
       render();
+      loadJobExpenses();
     }
     // Always try to recover unsynced jobs from offline cache
     _mergeOfflineJobs();
@@ -985,6 +986,8 @@ function loadEngineerData() {
         };
       });
       console.log('Loaded', engineerQuotes.length, 'engineer quotes from Supabase');
+      var _maxQ=0;engineerQuotes.forEach(function(q){var n=parseInt(String(q.id||'').replace(/^Q-/,'').split('-')[0],10);if(!isNaN(n)&&n>_maxQ)_maxQ=n});
+      if(_maxQ>=nextQuoteId)nextQuoteId=_maxQ+1;
       render();
     }
   });
@@ -1806,7 +1809,7 @@ function showAcceptPicker(){
     // Request different times button
     slotsHTML+='<div style="text-align:center;margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">'+
       '<div style="font-size:12px;color:var(--muted);margin-bottom:8px">None of these work?</div>'+
-      '<button class="btn btn-secondary" onclick="toast(\'info\',\'Message sent to customer requesting new times\');document.getElementById(\'acceptPickerOverlay\').remove()">💬 Request Different Times</button></div>';
+      '<button class="btn btn-secondary" onclick="requestNewTimes(\''+escAttr(String(mj.id))+'\')">💬 Request Different Times</button></div>';
   }else{
     // Fallback: 14-day calendar if no preferred slots (legacy jobs)
     var base=new Date();base.setHours(0,0,0,0);var days=[];
@@ -2787,7 +2790,7 @@ function showPropertySticker(bp){
     '</div>'+
     '<div style="font-size:11px;color:#9ca3af;margin-bottom:16px">Scan with any phone camera to view this boiler\'s full service history, next due dates, and Gas Safety certificates.</div>'+
     '<div class="flex gap-8" style="justify-content:center">'+
-    '<button class="btn btn-primary" onclick="toast(\'success\',\'Sticker PDF downloading...\');document.getElementById(\'qrStickerOverlay\').remove()">🖨️ Print Sticker</button>'+
+    '<button class="btn btn-primary" onclick="printElementById(\'qrStickerOverlay\',\'Boiler QR sticker\')">🖨️ Print Sticker</button>'+
     '<button class="btn btn-secondary" onclick="document.getElementById(\'qrStickerOverlay\').remove()">Close</button></div></div>';
   document.body.appendChild(overlay);
 }
@@ -3626,25 +3629,32 @@ function addJobExpense(jobId){
       sb.from('job_expenses').insert({
         job_id:jobIdStr, description:desc, amount:amt, billable:true,
         hmrc_category:catId, sa103_box:hcat.sa103
-      }).then(function(res){
-        if(res.error)console.log('Save job expense error:',res.error.message);
-        else console.log('Job expense saved to Supabase');
+      }).select('id').single().then(function(res){
+        if(res.error){console.log('Save job expense error:',res.error.message);toast('error','Expense not saved to cloud: '+res.error.message)}
+        else{expObj._supaId=res.data.id;console.log('Job expense saved to Supabase')}
       });
+    }else{
+      toast('warning','Expense kept on this device until the job finishes syncing');
     }
   }
 }
 function toggleBillable(jobId,expId){
   var j=findJob(jobId);if(!j)return;
-  var e=j.expenses.find(function(x){return x.id===expId});if(e)e.billable=!e.billable;render();
+  var e=j.expenses.find(function(x){return x.id===expId});if(e)e.billable=!e.billable;
+  if(e&&e._supaId&&currentUser){sb.from('job_expenses').update({billable:e.billable}).eq('id',e._supaId).then(function(res){if(res.error)console.log('Update job expense error:',res.error.message)})}
+  render();
 }
 function toggleReceipt(jobId,expId){
   var j=findJob(jobId);if(!j)return;
   var e=j.expenses.find(function(x){return x.id===expId});if(e)e.receipt=!e.receipt;
-  toast('success',e.receipt?'Receipt uploaded':'Receipt removed');render();
+  toast('success',e.receipt?'Marked as having a receipt':'Receipt mark removed');render();
 }
 function removeJobExpense(jobId,expId){
   var j=findJob(jobId);if(!j)return;
-  j.expenses=j.expenses.filter(function(x){return x.id!==expId});render();
+  var gone=j.expenses.find(function(x){return x.id===expId});
+  j.expenses=j.expenses.filter(function(x){return x.id!==expId});
+  if(gone&&gone._supaId&&currentUser){sb.from('job_expenses').delete().eq('id',gone._supaId).then(function(res){if(res.error){console.log('Delete job expense error:',res.error.message);toast('error','Could not remove from cloud: '+res.error.message)}})}
+  render();
 }
 function showGenExpModal(){
   var overlay=document.createElement('div');overlay.className='gen-exp-modal';overlay.id='genExpModal';
@@ -4167,7 +4177,7 @@ function pgCustBoiler(){
     // Share button
     '<div style="display:flex;gap:8px;margin-bottom:20px">'+
     '<button style="flex:1;padding:12px;border-radius:10px;border:2px solid #FFB800;background:rgba(255,184,0,.08);color:#D97706;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit" onclick="shareBoilerPassport()">📤 Share with Engineer</button>'+
-    '<button style="flex:1;padding:12px;border-radius:10px;border:1px solid #e5e7eb;background:#fff;color:#6b7280;font-weight:600;font-size:13px;cursor:pointer;font-family:inherit" onclick="toast(\'success\',\'Boiler Passport PDF downloaded\')">📥 Download PDF</button>'+
+    '<button style="flex:1;padding:12px;border-radius:10px;border:1px solid #e5e7eb;background:#fff;color:#6b7280;font-weight:600;font-size:13px;cursor:pointer;font-family:inherit" onclick="printMainPage(\'Boiler Passport\')">📥 Download PDF</button>'+
     '<button style="flex:1;padding:12px;border-radius:10px;border:2px solid #1A1A1A;background:#fff;color:#1A1A1A;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit" onclick="showPropertySticker(boilerPassports['+(custBoilerView>=0?custBoilerView:0)+'])">📱 QR Sticker</button>'+
     '</div>'+
     // Service history timeline
@@ -5104,9 +5114,8 @@ function custSendMessage(idx){
 }
 function payInvoiceNow(idx){
   var inv=custInvoices[idx];if(!inv)return;
-  inv.status='paid';inv.paidDate='Today';
-  toast('success','Payment processed successfully!');
-  render();
+  toast('info','Online card payment for invoices is coming soon. Please pay your engineer using the details on your invoice, or message them to arrange payment. They will mark it as paid.');
+  return;
   // Save to Supabase via RPC
   if(currentUser&&inv._supaId){
     sb.rpc('pay_invoice',{
@@ -5207,14 +5216,14 @@ function pgEngVerify(){
     '<div style="padding:14px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:10px;display:flex;align-items:center;gap:14px">'+
     '<div style="width:48px;height:48px;border-radius:10px;background:var(--warning-light);display:grid;place-items:center;font-size:22px;flex-shrink:0">🪪</div>'+
     '<div style="flex:1"><div style="font-weight:700">Gas Safe ID Card</div><div style="font-size:12px;color:var(--muted);margin-top:2px">Front and back of your card</div></div>'+
-    '<button class="btn btn-sm btn-secondary" onclick="this.innerHTML=\'✓ Uploaded\';this.classList.remove(\'btn-secondary\');this.classList.add(\'btn-success\')">Upload</button></div>'+
+    '<label class="btn btn-sm btn-secondary" style="cursor:pointer" id="vd-btn-gasid">Upload<input type="file" accept="image/*,application/pdf" style="display:none" onchange="uploadVerificationDoc(this,\'gas-safe-id\',\'vd-btn-gasid\')"></label></div>'+
     '<div style="padding:14px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:10px;display:flex;align-items:center;gap:14px">'+
     '<div style="width:48px;height:48px;border-radius:10px;background:var(--blue-light);display:grid;place-items:center;font-size:22px;flex-shrink:0">📜</div>'+
     '<div style="flex:1"><div style="font-weight:700">Registration Certificate</div><div style="font-size:12px;color:var(--muted);margin-top:2px">Current Gas Safe registration</div></div>'+
-    '<button class="btn btn-sm btn-secondary" onclick="this.innerHTML=\'✓ Uploaded\';this.classList.remove(\'btn-secondary\');this.classList.add(\'btn-success\')">Upload</button></div>'+
+    '<label class="btn btn-sm btn-secondary" style="cursor:pointer" id="vd-btn-reg">Upload<input type="file" accept="image/*,application/pdf" style="display:none" onchange="uploadVerificationDoc(this,\'registration\',\'vd-btn-reg\')"></label></div>'+
     '<div style="padding:12px;background:var(--bg);border-radius:var(--radius);margin:16px 0"><div style="display:flex;align-items:center;gap:8px"><span style="font-size:16px">⏳</span><div><div style="font-weight:700;font-size:13px">Verification Status: Pending Review</div><div style="font-size:11px;color:var(--muted);margin-top:2px">Typically verified within 24 hours</div></div></div></div>'+
-    '<button class="btn btn-primary btn-block btn-lg mt-16" onclick="toast(\'success\',\'Documents submitted for verification!\');setTimeout(function(){go(\'dashboard\')},1000)">Submit for Review</button>'+
-    '<div class="text-center text-sm text-muted mt-16">In this demo, verification is instant. Click Submit to proceed.</div>'+
+    '<button class="btn btn-primary btn-block btn-lg mt-16" onclick="submitVerificationDocs()">Submit for Review</button>'+
+    '<div class="text-center text-sm text-muted mt-16">Your documents are stored privately and are only seen by the HomeLinq team.</div>'+
     '</div></div></div>';
 }
 
@@ -8130,7 +8139,7 @@ function pgCustDetail(){
   var owed=getCustOwed(c.name,c.linkedCustomerId||c.id);var paidTotal=getCustPaid(c.name,c.linkedCustomerId||c.id);
   var unpaidInvs=custInvs.filter(function(i){return i.st==='unpaid'});
   var paidInvs=custInvs.filter(function(i){return i.st==='paid'});
-  return '<button class="back-btn" onclick="go(\'customers\')">← Back</button><div class="main-header"><div class="flex-between"><div><h1>'+esc(c.name)+'</h1><p>'+(isComp?(c.contactPerson?'Contact: '+esc(c.contactPerson):'Company account'):esc(c.addr||''))+'</p></div><div class="flex gap-8">'+tagBadge+(owed>0?'<button class="btn btn-warning btn-sm" onclick="unpaidInvs=invoices.filter(function(i){return i.cust===\''+c.name.replace(/'/g,"\\'")+'\'&&i.st===\'unpaid\'});if(unpaidInvs.length){sendChase(unpaidInvs[0].id)}">📧 Chase Payment</button>':'')+(isComp?'':'<button class="btn btn-primary btn-sm" onclick="toast(\'success\',\'Reminder sent to '+escAttr(c.name)+'\')">Send Reminder</button>')+'<button class="btn btn-secondary btn-sm">Edit</button></div></div></div>'+
+  return '<button class="back-btn" onclick="go(\'customers\')">← Back</button><div class="main-header"><div class="flex-between"><div><h1>'+esc(c.name)+'</h1><p>'+(isComp?(c.contactPerson?'Contact: '+esc(c.contactPerson):'Company account'):esc(c.addr||''))+'</p></div><div class="flex gap-8">'+tagBadge+(owed>0?'<button class="btn btn-warning btn-sm" onclick="unpaidInvs=invoices.filter(function(i){return i.cust===\''+c.name.replace(/'/g,"\\'")+'\'&&i.st===\'unpaid\'});if(unpaidInvs.length){sendChase(unpaidInvs[0].id)}">📧 Chase Payment</button>':'')+(isComp?'':'<button class="btn btn-primary btn-sm" onclick="sendCustomerServiceReminder(\''+escAttr(String(c.id))+'\')">Send Reminder</button>')+'<button class="btn btn-secondary btn-sm">Edit</button></div></div></div>'+
     '<div class="stats-grid" style="grid-template-columns:repeat(5,1fr)"><div class="card stat-card" style="cursor:pointer;border:2px solid transparent;transition:border .15s" onclick="var el=document.getElementById(\'custJobsSection\');if(el)el.scrollIntoView({behavior:\'smooth\'})" onmouseover="this.style.borderColor=\'var(--primary)\'" onmouseout="this.style.borderColor=\'transparent\'"><div class="stat-label">Total Jobs</div><div class="stat-value">'+c.jobs+'</div><div class="text-sm text-muted mt-8" style="font-size:11px">Click to view all</div></div><div class="card stat-card" style="cursor:pointer;border:2px solid transparent;transition:border .15s" onclick="var el=document.getElementById(\'custJobsSection\');if(el)el.scrollIntoView({behavior:\'smooth\'})" onmouseover="this.style.borderColor=\'var(--success)\'" onmouseout="this.style.borderColor=\'transparent\'"><div class="stat-label">'+(isComp?'Revenue':'Total Billed')+'</div><div class="stat-value">£'+(c.spent||0).toLocaleString()+'</div><div class="text-sm text-muted mt-8" style="font-size:11px">Click to view breakdown</div></div><div class="card stat-card"><div class="stat-label">Collected</div><div class="stat-value" style="color:var(--success)">£'+paidTotal.toFixed(0)+'</div></div><div class="card stat-card"><div class="stat-label">Outstanding</div><div class="stat-value" style="color:'+(owed>0?'var(--warning)':'var(--muted)')+'">£'+owed.toFixed(0)+'</div>'+(owed>0?'<div class="stat-change down">'+unpaidInvs.length+' unpaid</div>':'<div class="stat-change up">All clear</div>')+'</div><div class="card stat-card"><div class="stat-label">'+(isComp?'Status':'Next Due')+'</div><div class="stat-value" style="font-size:18px">'+(c.next||'TBD')+'</div></div></div>'+
     // Unpaid invoices alert
     (unpaidInvs.length?'<div class="card mb-24" style="background:var(--warning-light);border:2px solid var(--warning)"><div class="card-header"><div style="display:flex;align-items:center;gap:8px"><span style="font-size:20px">⚠️</span><div class="card-title" style="color:#92400E">Unpaid Invoices ('+unpaidInvs.length+')</div></div><div class="fw-800" style="color:#92400E;font-size:18px">£'+owed.toFixed(2)+'</div></div>'+
@@ -8140,7 +8149,7 @@ function pgCustDetail(){
       return '<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid rgba(0,0,0,.08)"><div style="flex:1"><div class="fw-700" style="font-size:13px">'+inv.id+' — '+esc(inv.desc)+'</div><div class="text-sm text-muted">Sent '+inv.date+' · '+age+' days ago'+(inv.chaseCount?' · '+inv.chaseCount+' reminder'+(inv.chaseCount>1?'s':'')+' sent':'')+'</div></div><div class="fw-800" style="font-size:15px;color:#92400E">£'+(inv.amt+inv.vat).toFixed(2)+'</div><div class="flex gap-8"><button class="btn btn-success btn-sm" onclick="event.stopPropagation();markInvPaid(\''+inv.id+'\',\'manual\')" style="padding:4px 8px;font-size:11px">✓ Paid</button><button class="btn btn-sm btn-secondary" onclick="event.stopPropagation();go(\'invoiceDetail\',{iid:\''+inv.id+'\'})" style="padding:4px 8px;font-size:11px">View</button></div></div>';
     }).join('')+'</div>':'')+
     '<div class="grid-2"><div class="card"><div class="card-title mb-16">'+(isComp?'Company':'Contact')+' Details</div>'+
-    (c.email?'<div class="field"><div class="label">'+(isComp?'Invoicing ':'')+'Email</div><div style="display:flex;align-items:center;gap:8px"><span>'+esc(c.email)+'</span><button class="btn btn-success btn-sm" style="padding:4px 10px;font-size:11px" onclick="toast(\'success\',\'Test email sent to '+escAttr(c.email)+'\')">Test</button></div></div>':
+    (c.email?'<div class="field"><div class="label">'+(isComp?'Invoicing ':'')+'Email</div><div style="display:flex;align-items:center;gap:8px"><span>'+esc(c.email)+'</span></div></div>':
     '<div class="field"><div class="label">Email</div><div style="color:var(--warning);font-weight:700">⚠️ No email — <a href="#" onclick="event.preventDefault();toast(\'success\',\'Edit form would open\')" style="color:var(--primary)">add one</a> to send invoices automatically</div></div>')+
     '<div class="field"><div class="label">Phone</div><div>'+(c.phone||'—')+'</div></div>'+
     (isComp?
@@ -8206,15 +8215,27 @@ function getInvStatus(inv){
 }
 function markInvPaid(invId,method){
   var inv=invoices.find(function(i){return i.id===invId});if(!inv)return;
-  inv.st='paid';inv.paidDate='4 May 2026';inv.paidMethod=method||'manual';inv.paidRef=method==='manual'?'Marked by engineer':'Auto-matched';
-  toast('success','Invoice '+invId+' marked as paid ('+paymentMethods[method||'manual'].label+')');render();
+  var m=method||'manual';
+  var dbMethod={bank_transfer:'bank_transfer',stripe:'stripe',cash:'cash',cheque:'cheque',gocardless:'gocardless'}[m]||null;
+  var now=new Date();
+  inv.st='paid';inv.paidDate=now.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});inv.paidMethod=m;inv.paidRef='Marked paid by engineer';
+  _invRowUpdate(inv,{status:'paid',paid_date:now.toISOString(),paid_method:dbMethod,paid_reference:'Marked paid by engineer',updated_at:now.toISOString()});
+  toast('success','Invoice '+invId+' marked as paid ('+(paymentMethods[m]?paymentMethods[m].label:'Manual')+')');render();
 }
 function sendChase(invId){
   var inv=invoices.find(function(i){return i.id===invId});if(!inv||inv.st==='paid')return;
-  var step=chaseConfig.steps[Math.min(inv.chaseCount,chaseConfig.steps.length-1)];
-  inv.chaseCount=(inv.chaseCount||0)+1;inv.lastChase='4 May 2026';
-  var age=calcInvAge(inv.date);var nextDays=inv.chaseCount<chaseConfig.steps.length?chaseConfig.steps[inv.chaseCount].days:null;
-  toast('success','📧 '+step.subject+' sent to '+inv.custEmail+' (chase #'+inv.chaseCount+')');render();
+  if(!inv.custEmail){toast('warning','No customer email on this invoice — add one before chasing');return}
+  var engName=S.engineer.business||S.engineer.name||'Your Engineer';
+  var step=chaseConfig.steps[Math.min(inv.chaseCount||0,chaseConfig.steps.length-1)];
+  var age=calcInvAge(inv.date);
+  sendHomeLinqEmail(inv.custEmail,step.subject+' — invoice '+inv.id+' from '+engName,'invoice_reminder',{
+    invoice_id:inv.id,engineer_name:engName,customer_name:inv.cust,description:inv.desc||'Gas engineer services',
+    total:(inv.amt+(inv.vat||0)).toFixed(2),days_overdue:age>0?age:''
+  },{reply_to:S.engineer.email||'',from_name:engName});
+  var now=new Date();
+  inv.chaseCount=(inv.chaseCount||0)+1;inv.lastChase=now.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
+  _invRowUpdate(inv,{chase_count:inv.chaseCount,last_chase_date:now.toISOString(),updated_at:now.toISOString()});
+  render();
 }
 function pgInvoices(){
   var paid=invoices.filter(function(i){return i.st==='paid'});
@@ -8271,11 +8292,11 @@ function pgInvDetail(){
   // Pay link preview
   var payLinkHTML='';
   if(i.st==='unpaid'){
-    payLinkHTML='<div class="pay-link-box"><div style="flex-shrink:0"><div style="font-size:28px">💳</div></div><div style="flex:1"><div class="fw-700" style="color:#4338CA">Customer Payment Link</div><div class="text-sm" style="color:#6366F1;margin-top:4px">Included in every invoice email. Customer clicks → pays by card or bank → auto-marks paid.</div><div class="pay-link-url mt-8">https://pay.homelinq.co/'+i.id.toLowerCase()+'</div></div><button class="btn btn-sm btn-secondary" onclick="toast(\'success\',\'Payment link copied to clipboard\')">Copy</button></div>';
+    payLinkHTML='<div class="pay-link-box"><div style="flex-shrink:0"><div style="font-size:28px">🔗</div></div><div style="flex:1"><div class="fw-700" style="color:#4338CA">Invoice Link</div><div class="text-sm" style="color:#6366F1;margin-top:4px">A web link to this invoice that your customer can open, print or save as PDF. Online card payment for invoices is coming soon.</div>'+(i.hostedUrl?'<div class="pay-link-url mt-8">'+esc(i.hostedUrl)+'</div>':'')+'</div><button class="btn btn-sm btn-secondary" onclick="copyInvoiceLink(\''+escAttr(String(i.id))+'\')">Copy link</button></div>';
   }
   // Status badge
   var statusBadge=i.st==='paid'?'<span class="payment-badge paid" style="font-size:14px;padding:8px 16px">✓ Paid</span>':'';
-  return '<button class="back-btn" onclick="go(\'invoices\')">← Back</button><div class="main-header"><div class="flex-between"><div><h1>'+i.id+'</h1><p>'+i.cust+(i.custEmail?' · '+i.custEmail:'')+'</p></div><div class="flex gap-8">'+(i.st==='unpaid'?'<button class="btn btn-success btn-sm" onclick="markInvPaid(\''+i.id+'\',\'manual\')">✓ Mark Paid</button><button class="btn btn-warning btn-sm" onclick="sendChase(\''+i.id+'\')">📧 Send Reminder</button>':statusBadge)+'<button class="btn btn-primary btn-sm" onclick="toast(\'success\',\'Invoice resent to '+i.custEmail+'\')">📤 Resend</button><button class="btn btn-secondary btn-sm" onclick="toast(\'success\',\'PDF downloaded\')">📥 PDF</button></div></div></div>'+
+  return '<button class="back-btn" onclick="go(\'invoices\')">← Back</button><div class="main-header"><div class="flex-between"><div><h1>'+i.id+'</h1><p>'+i.cust+(i.custEmail?' · '+i.custEmail:'')+'</p></div><div class="flex gap-8">'+(i.st==='unpaid'?'<button class="btn btn-success btn-sm" onclick="markInvPaid(\''+i.id+'\',\'manual\')">✓ Mark Paid</button><button class="btn btn-warning btn-sm" onclick="sendChase(\''+i.id+'\')">📧 Send Reminder</button>':statusBadge)+'<button class="btn btn-primary btn-sm" onclick="sendInvoiceEmail(\''+escAttr(String(i.id))+'\')">📤 Resend</button><button class="btn btn-secondary btn-sm" onclick="printInvoice(\''+escAttr(String(i.id))+'\')">📥 PDF</button></div></div></div>'+
     '<div class="grid-2"><div class="card" style="max-width:none">'+buildProInvoiceHTML(i)+
     payLinkHTML+'</div>'+
     '<div>'+paidInfoHTML+chaseHTML+
@@ -8938,7 +8959,7 @@ function showSA103(){
     '<div class="breakdown-row"><div>Class 2 NI</div><div>£'+Math.round(t.class2).toLocaleString()+'</div></div>'+
     '<div class="breakdown-row"><div>Class 4 NI</div><div>£'+Math.round(t.class4).toLocaleString()+'</div></div>'+
     '<div class="breakdown-row total"><div>Total tax due</div><div style="color:var(--danger)">£'+Math.round(t.totalTax).toLocaleString()+'</div></div></div>'+
-    '<div class="flex gap-8 mt-24" style="flex-wrap:wrap"><button class="btn btn-primary btn-lg" onclick="toast(\'success\',\'SA103 submitted to HMRC — confirmation email sent to '+e.email+'\');document.getElementById(\'sa103Overlay\').remove()">🏛️ Submit to HMRC</button><button class="btn btn-success btn-lg" onclick="toast(\'success\',\'SA103 PDF downloaded\')">📥 Download PDF</button><button class="btn btn-secondary btn-lg" onclick="document.getElementById(\'sa103Overlay\').remove()">Close</button></div>'+
+    '<div class="flex gap-8 mt-24" style="flex-wrap:wrap"><button class="btn btn-primary btn-lg" onclick="printElementById(\'sa103Overlay\',\'SA103 summary\')">🖨️ Print / Save as PDF</button><div style="width:100%;font-size:12px;color:var(--muted)">HomeLinq does not file with HMRC. Use these figures to complete your Self Assessment on gov.uk, or give them to your accountant.</div><button class="btn btn-secondary btn-lg" onclick="document.getElementById(\'sa103Overlay\').remove()">Close</button></div>'+
     '<div style="margin-top:16px;padding:12px;background:var(--primary-light);border-radius:var(--radius);text-align:center"><div class="text-sm" style="color:var(--primary-dark)">✨ Every figure above was auto-calculated from your daily job sheet activity. No accountant needed.</div></div></div>';
   document.body.appendChild(overlay);
 }
@@ -8958,7 +8979,7 @@ function pgTax(){
     var hcat=HMRC_CATS.find(function(c){return c.label===k});
     return '<div class="breakdown-row"><div>'+(hcat?hcat.icon+' ':'')+k+'</div><div class="fw-700">£'+catSums[k].toFixed(2)+'</div></div>';
   }).join('');
-  return '<div class="main-header"><div class="flex-between"><div><h1>Tax Dashboard</h1><p>Tax year 2025/26 (6 Apr 2025 – 5 Apr 2026) · Self Assessment</p></div><div class="flex gap-8"><button class="btn btn-primary" onclick="showSA103()">🏛️ Prepare SA103</button><button class="btn btn-secondary" onclick="toast(\'success\',\'Tax summary PDF exported\')">📥 Export</button></div></div></div>'+
+  return '<div class="main-header"><div class="flex-between"><div><h1>Tax Dashboard</h1><p>Tax year 2025/26 (6 Apr 2025 – 5 Apr 2026) · Self Assessment</p></div><div class="flex gap-8"><button class="btn btn-primary" onclick="showSA103()">🏛️ Prepare SA103</button><button class="btn btn-secondary" onclick="printMainPage(\'Tax summary\')">📥 Export</button></div></div></div>'+
     '<div class="stats-grid" style="grid-template-columns:repeat(4,1fr)">'+
     '<div class="card tax-card"><div class="stat-label">Income Tax</div><div class="tax-amount" style="color:var(--danger);font-size:32px">£'+Math.round(t.incomeTax).toLocaleString()+'</div><div class="tax-sub">Basic rate (20%)</div></div>'+
     '<div class="card tax-card"><div class="stat-label">National Insurance</div><div class="tax-amount" style="color:var(--warning);font-size:32px">£'+Math.round(t.class2+t.class4).toLocaleString()+'</div><div class="tax-sub">Class 2 + Class 4</div></div>'+
@@ -9056,9 +9077,9 @@ function saveManualReminder(){
 // ===== REVIEWS =====
 function pgReviews(){
   return '<div class="main-header"><h1>Review Automation</h1><p>Google Reviews on autopilot.</p></div>'+
-    '<div class="stats-grid" style="grid-template-columns:repeat(3,1fr)"><div class="card stat-card"><div class="stat-label">Requested</div><div class="stat-value">24</div><div class="stat-change up">This year</div></div><div class="card stat-card"><div class="stat-label">Received</div><div class="stat-value">18</div><div class="stat-change up">75% rate</div></div><div class="card stat-card"><div class="stat-label">Avg Rating</div><div class="stat-value" style="color:var(--warning)">4.9 ⭐</div></div></div>'+
-    '<div class="card"><div class="card-header"><div class="card-title">Pending Requests</div></div>'+
-    [{n:'Robert Hughes',j:'Boiler service + CP12',d:'9 Apr 2026'},{n:'Linda Chen',j:'Gas safety check',d:'3 Apr 2026'}].map(function(r){return '<div class="reminder-card"><div class="avatar avatar-warning">⭐</div><div class="reminder-info"><div class="fw-700">'+r.n+'</div><div class="text-sm text-muted">'+r.j+' — '+r.d+'</div><div class="text-sm mt-8" style="background:var(--bg);padding:10px 12px;border-radius:8px;line-height:1.6">"Hi '+r.n.split(' ')[0]+', thanks for choosing '+(S.engineer.business||'us')+'! Would you mind leaving a quick Google Review? [link] Thanks, '+(S.engineer.name||'').split(' ')[0]+'"</div></div><div class="reminder-actions" style="flex-direction:column"><button class="btn btn-success btn-sm" onclick="toast(\'success\',\'Sent to '+r.n+'\')">Send</button><button class="btn btn-secondary btn-sm">Edit</button></div></div>'}).join('')+'</div>';
+    '<div class="card" style="text-align:center;padding:40px 24px"><div style="font-size:40px;margin-bottom:12px">⭐</div>'+
+    '<div class="fw-800" style="font-size:18px;margin-bottom:8px">Coming soon</div>'+
+    '<div class="text-sm text-muted" style="max-width:420px;margin:0 auto">Automatic review requests after each completed job are on the way. Until then, nothing is sent from this page.</div></div>';
 }
 
 // ===== SETTINGS =====
@@ -10191,6 +10212,128 @@ function saveCertToSupabase(cert) {
 function genUUID(){
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,function(c){
     var r=Math.random()*16|0;return(c==='x'?r:(r&0x3|0x8)).toString(16);
+  });
+}
+// ===== 0.2d: real actions for previously fake buttons =====
+function printHTML(title, innerHtml){
+  var w=window.open('','_blank');
+  if(!w){toast('error','Please allow pop-ups for homelinq.co.uk to print or save as PDF');return}
+  var styles='';
+  var nodes=document.querySelectorAll('style,link[rel="stylesheet"]');
+  for(var k=0;k<nodes.length;k++){styles+=nodes[k].outerHTML}
+  w.document.open();
+  w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>'+esc(title)+'</title>'+styles+
+    '<style>body{background:#fff!important;padding:24px;margin:0}button,.btn,.back-btn{display:none!important}.cascade-overlay,.gen-exp-modal{position:static!important;background:none!important}</style></head><body>'+innerHtml+'</body></html>');
+  w.document.close();
+  w.focus();
+  setTimeout(function(){try{w.print()}catch(e){}},600);
+}
+function printElementById(id,title){
+  var el=document.getElementById(id);
+  if(!el){toast('error','Nothing to print');return}
+  printHTML(title,el.innerHTML);
+}
+function printMainPage(title){
+  var el=document.querySelector('.main')||document.querySelector('.cust-app')||document.getElementById('app');
+  if(!el){toast('error','Nothing to print');return}
+  printHTML(title,el.innerHTML);
+}
+function printInvoice(invId){
+  var inv=invoices.find(function(i){return String(i.id)===String(invId)});if(!inv)return;
+  printHTML('Invoice '+inv.id,buildProInvoiceHTML(inv));
+}
+function _invRowUpdate(inv,fields){
+  if(!currentUser||!sb)return;
+  var q=sb.from('invoices').update(fields);
+  if(inv._supaId){q=q.eq('id',inv._supaId)}else{q=q.eq('engineer_id',currentUser.id).eq('invoice_number',String(inv.id))}
+  q.select('id').then(function(res){
+    if(res.error){console.log('Invoice update error:',res.error.message);toast('error','Could not save to cloud: '+res.error.message);return}
+    if(res.data&&res.data[0]&&!inv._supaId){inv._supaId=res.data[0].id}
+  });
+}
+function copyInvoiceLink(invId){
+  var inv=invoices.find(function(i){return String(i.id)===String(invId)});if(!inv)return;
+  function _copy(url){
+    inv.hostedUrl=url;
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(url).then(function(){toast('success','Invoice link copied')},function(){window.prompt('Copy this link:',url)});
+    }else{window.prompt('Copy this link:',url)}
+    render();
+  }
+  if(inv.hostedUrl){_copy(inv.hostedUrl);return}
+  var engName=S.engineer.business||S.engineer.name||'Your Engineer';
+  var pageHTML='<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Invoice '+esc(String(inv.id))+' — '+esc(engName)+'</title>'+
+    '<style>body{margin:0;padding:20px;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif}.inv-wrap{max-width:700px;margin:0 auto}.print-bar{text-align:center;margin-bottom:16px}.print-btn{padding:10px 28px;background:#4B7A2E;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer}@media print{.print-bar{display:none}body{background:#fff;padding:0}}</style></head>'+
+    '<body><div class="inv-wrap"><div class="print-bar"><button class="print-btn" onclick="window.print()">Print / Save as PDF</button></div>'+buildProInvoiceHTML(inv)+'</div></body></html>';
+  var fileName='inv-'+String(inv.id).replace(/[^A-Za-z0-9-]/g,'')+'-'+Date.now()+'.html';
+  toast('info','Creating invoice link...');
+  sb.storage.from('invoices').upload(fileName,new Blob([pageHTML],{type:'text/html'}),{contentType:'text/html',upsert:false}).then(function(res){
+    if(res.error){toast('error','Could not create link: '+res.error.message);return}
+    _copy(sb.storage.from('invoices').getPublicUrl(fileName).data.publicUrl);
+  });
+}
+function sendCustomerServiceReminder(cid){
+  var c=customers.find(function(x){return String(x.id)===String(cid)});if(!c)return;
+  if(!c.email){toast('warning','No email saved for '+c.name+' — add one first');return}
+  var engName=S.engineer.business||S.engineer.name||'Your Engineer';
+  var msg='Hi '+String(c.name||'').split(' ')[0]+',\n\nThis is a friendly reminder from '+engName+' that your boiler service or gas safety check may be due.\n\nReply to this email'+(S.engineer.phone?' or call '+S.engineer.phone:'')+' to book a time that suits you.\n\nThanks,\n'+engName;
+  sendHomeLinqEmail(c.email,'Service reminder from '+engName,'generic',{subject:'Service reminder',message:msg},{reply_to:S.engineer.email||'',from_name:engName});
+}
+function requestNewTimes(mjId){
+  var mj=marketplaceJobs.find(function(x){return String(x.id)===String(mjId)});if(!mj)return;
+  var engName=S.engineer.business||S.engineer.name||'Your engineer';
+  var text='Hi '+String(mj.cust||'').split(' ')[0]+', thanks for your booking. Unfortunately none of your preferred times work for me. Could you send a few other days and times that suit you? — '+engName;
+  var sent=false;
+  if(currentUser&&mj._custId){
+    sent=true;
+    sb.rpc('send_message',{p_sender_id:currentUser.id,p_sender_role:'engineer',p_other_user_id:mj._custId,p_content:text,p_marketplace_job_id:(String(mj.id).indexOf('-')>-1?mj.id:null)}).then(function(res){
+      if(res.error){console.log('Request times message error:',res.error.message);toast('error','Message not sent: '+res.error.message)}
+      else{toast('success','Message sent to '+(mj.cust||'the customer')+' asking for new times')}
+    });
+  }
+  if(mj.custEmail){
+    sent=true;
+    sendHomeLinqEmail(mj.custEmail,'Can we find another time? — '+engName,'generic',{subject:'Please suggest new times',message:text},{reply_to:S.engineer.email||'',from_name:engName});
+  }
+  if(!sent){toast('warning','No way to contact this customer from here')}
+  var ov=document.getElementById('acceptPickerOverlay');if(ov)ov.remove();
+}
+var verificationUploads={};
+function uploadVerificationDoc(input,kind,btnId){
+  var f=input.files&&input.files[0];if(!f)return;
+  if(!currentUser){toast('error','Please sign in first');return}
+  if(f.size>10*1024*1024){toast('error','File too large (max 10 MB)');return}
+  var ext=(String(f.name).split('.').pop()||'jpg').toLowerCase().replace(/[^a-z0-9]/g,'');
+  var path=currentUser.id+'/'+kind+'-'+Date.now()+'.'+ext;
+  var btn=document.getElementById(btnId);
+  if(btn&&btn.firstChild){btn.firstChild.nodeValue='Uploading...'}
+  sb.storage.from('verification-docs').upload(path,f,{contentType:f.type||'application/octet-stream',upsert:false}).then(function(res){
+    if(res.error){toast('error','Upload failed: '+res.error.message);if(btn&&btn.firstChild){btn.firstChild.nodeValue='Upload'}return}
+    verificationUploads[kind]=path;
+    if(btn&&btn.firstChild){btn.firstChild.nodeValue='✓ Uploaded';btn.classList.remove('btn-secondary');btn.classList.add('btn-success')}
+    toast('success','Document uploaded securely');
+  });
+}
+function submitVerificationDocs(){
+  if(!verificationUploads['gas-safe-id']||!verificationUploads['registration']){toast('warning','Please upload both documents first');return}
+  toast('success','Documents received — we will review them and email you once you are approved');
+  setTimeout(function(){go('dashboard')},1200);
+}
+function loadJobExpenses(){
+  if(!currentUser||!sb)return;
+  var ids=[];
+  Object.keys(allJobs).forEach(function(d){allJobs[d].forEach(function(j){var sid=String(j.id||'');if(sid.indexOf('-')>-1)ids.push(sid)})});
+  if(!ids.length)return;
+  sb.from('job_expenses').select('*').in('job_id',ids).then(function(res){
+    if(res.error){console.log('Load job expenses error:',res.error.message);return}
+    (res.data||[]).forEach(function(e){
+      var j=findJob(e.job_id);if(!j)return;
+      if(!j.expenses)j.expenses=[];
+      if(j.expenses.some(function(x){return x._supaId===e.id}))return;
+      var hcat=HMRC_CATS.find(function(c){return c.id===e.hmrc_category})||HMRC_CATS[0];
+      j.expenses.push({id:nextExpId++,_supaId:e.id,desc:e.description,amt:Number(e.amount)||0,billable:e.billable!==false,receipt:!!e.receipt_url,cat:e.hmrc_category,catLabel:hcat.label});
+    });
+    render();
   });
 }
 function saveCustomerToSupabase(cust) {

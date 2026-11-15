@@ -481,6 +481,19 @@ function findEngineer(engId) {
   return null;
 }
 
+// View an engineer's verification documents (private bucket; admin-only signed links valid 10 minutes)
+function viewVerificationDocs(engId) {
+  sb.storage.from('verification-docs').list(engId, {limit: 50, sortBy: {column: 'created_at', order: 'desc'}}).then(function(res) {
+    if (res.error) { alert('Could not load documents: ' + res.error.message); return; }
+    var files = (res.data || []).filter(function(f) { return f.name && f.name.charAt(0) !== '.'; });
+    if (!files.length) { alert('This engineer has not uploaded any documents yet.'); return; }
+    var paths = files.map(function(f) { return engId + '/' + f.name; });
+    sb.storage.from('verification-docs').createSignedUrls(paths, 600).then(function(sres) {
+      if (sres.error) { alert('Could not open documents: ' + sres.error.message); return; }
+      (sres.data || []).forEach(function(d) { if (d.signedUrl) { window.open(d.signedUrl, '_blank'); } });
+    });
+  });
+}
 function approveEngineer(engId) {
   var eng = findEngineer(engId);
   var name = eng ? (eng.full_name || 'Engineer') : 'Engineer';
@@ -844,6 +857,7 @@ function renderDashboardContent() {
         '<div class="approval-actions">' +
         '<button class="btn-approve" id="approve-' + pe.id + '" onclick="approveEngineer(\'' + pe.id + '\')">Approve</button>' +
         '<button class="btn-reject" id="reject-' + pe.id + '" onclick="rejectEngineer(\'' + pe.id + '\')">Reject</button>' +
+        '<button class="btn-reject" style="background:#0D9488;color:#fff;border-color:#0D9488" onclick="viewVerificationDocs(\'' + pe.id + '\')">📄 Documents</button>' +
         '</div></div>';
     }
     h += '</div></div>';
