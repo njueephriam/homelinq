@@ -522,6 +522,7 @@ function loadUserProfile(role) {
         S.engineer.vatNumber = res.data.vat_number || '';
         S.engineer.vehicleMethod = res.data.vehicle_method || '';
         S.engineer.accountingBasis = res.data.accounting_basis || 'cash';
+        S.engineer.sharePartPrices = res.data.share_part_prices !== false;
         S.engineer.idCard = res.data.id_card_number || S.engineer.idCard;
         S.engineer.standardRate = res.data.standard_rate || CALLOUT_STANDARD;
         S.engineer.emergencyRate = res.data.emergency_rate || CALLOUT_OOH;
@@ -7407,6 +7408,7 @@ function skipOnboarding(){
 function render(){var a=document.getElementById('app');if(S.screen==='login'&&!isPWA){a.innerHTML=pgLogin();return}if(S.screen==='engVerify'){a.innerHTML=pgEngVerify();return}if(S.screen==='login'&&isPWA&&currentUser){S.screen='jobsheet'}if(S.screen==='login'&&isPWA&&!currentUser){a.innerHTML=pgLogin();return}
   if(S.role==='customer'){a.innerHTML='<div class="cust-app">'+custTopbar()+'<div style="padding:64px 16px 84px;max-width:480px;margin:0 auto">'+page()+'</div>'+custBottomNav()+custMenuOverlay()+'</div>';scheduleOfflineSave();return}
   a.innerHTML=mobileTop()+'<div class="app-shell">'+sidebar()+'<div class="main">'+stripeBanner()+page()+'</div></div>'+bottomNav()+(wiz.open?renderWizard():'');
+  partsWarm();
   // Post-render hooks — sync minimal data to localStorage for standalone chat PWA (strip PII)
   try{var _sharedCusts=customers.map(function(c){return{id:c.id,name:c.name,boiler:c.boiler}});localStorage.setItem('homelinq_shared_data',JSON.stringify({engineer:{name:S.engineer.name,gasSafe:S.engineer.gasSafe,business:S.engineer.business},customers:_sharedCusts,faultChatLearned:faultChatLearned}))}catch(e){}
   scheduleOfflineSave();
@@ -7433,7 +7435,7 @@ function page(){
       default:return pgCustHome();
     }
   }
-  switch(S.screen){case'onboarding':return pgOnboarding();case'dashboard':return pgDash();case'jobsheet':return pgJobSheet();case'addJob':return pgAddJob();case'editJob':return pgEditJob();case'voiceLog':return pgVoice();case'cp12':return pgCP12();case'boilerLookup':return pgBoilerLookup();case'faultCodes':return pgFaultCodes();case'customers':return pgCustomers();case'addCustomer':return pgAddCustomer();case'customerDetail':return pgCustDetail();case'invoices':return pgInvoices();case'createInvoice':return pgCreateInvoice();case'invoiceDetail':return pgInvDetail();case'quotes':return pgEngQuotes();case'accounting':return pgAccounting();case'mileage':return pgMileage();case'taxDash':return pgTax();case'motiActivity':return pgMotiActivity();case'reminders':return pgReminders();case'reviews':return pgReviews();case'messages':return pgMessages();case'settings':return pgSettings();default:return pgDash()}
+  switch(S.screen){case'onboarding':return pgOnboarding();case'dashboard':return pgDash();case'jobsheet':return pgJobSheet();case'addJob':return pgAddJob();case'editJob':return pgEditJob();case'voiceLog':return pgVoice();case'cp12':return pgCP12();case'boilerLookup':return pgBoilerLookup();case'faultCodes':return pgFaultCodes();case'customers':return pgCustomers();case'addCustomer':return pgAddCustomer();case'customerDetail':return pgCustDetail();case'invoices':return pgInvoices();case'createInvoice':return pgCreateInvoice();case'invoiceDetail':return pgInvDetail();case'quotes':return pgEngQuotes();case'accounting':return pgAccounting();case'mileage':return pgMileage();case'taxDash':return pgTax();case'motiActivity':return pgMotiActivity();case'parts':return pgParts();case'reminders':return pgReminders();case'reviews':return pgReviews();case'messages':return pgMessages();case'settings':return pgSettings();default:return pgDash()}
 }
 
 function pgLogin(){
@@ -7470,7 +7472,7 @@ function navSection(key,label,icon,items,badge){
 function sidebar(){
   var qBadge=engineerQuotes.filter(function(q){return q.status==='accepted'}).length;
   var mBadge=messages.filter(function(m){return m.unread}).length;
-  var workItems=ni('📊','Dashboard','dashboard')+ni('📋','Job Sheet','jobsheet')+ni('🎙️','Voice Log Job','voiceLog')+ni('📜','Certificates','cp12')+ni('📖','Boiler Passport','boilerLookup')+ni('👥','Customers','customers')+ni('📄','Invoices','invoices')+
+  var workItems=ni('📊','Dashboard','dashboard')+ni('📋','Job Sheet','jobsheet')+ni('🎙️','Voice Log Job','voiceLog')+ni('📜','Certificates','cp12')+ni('📖','Boiler Passport','boilerLookup')+ni('👥','Customers','customers')+ni('📄','Invoices','invoices')+ni('🔩','Parts & prices','parts')+
     '<button class="nav-item'+(S.screen==='quotes'?' active':'')+'" onclick="go(\'quotes\')" style="position:relative"><span class="nav-icon">📋</span>Quotes'+(qBadge?'<span style="margin-left:auto;background:var(--warning);color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800">'+qBadge+'</span>':'')+'</button>'+
     '<button class="nav-item'+(S.screen==='messages'?' active':'')+'" onclick="go(\'messages\')" style="position:relative"><span class="nav-icon">💬</span>Messages'+(mBadge?'<span class="msg-unread-count" style="margin-left:auto">'+mBadge+'</span>':'')+'</button>';
   var accItems=ni('💰','Accounting','accounting')+ni('🚗','Mileage','mileage')+ni('🏛️','Tax Dashboard','taxDash');
@@ -7489,6 +7491,120 @@ function bottomNav(){
   return '<div class="bottom-nav"><div class="bottom-nav-inner">'+it.map(function(i){return '<button class="bnav-item'+(S.screen===i[2]?' active':'')+'" onclick="go(\''+i[2]+'\')"><span class="bnav-icon">'+i[0]+'</span>'+i[1]+'</button>'}).join('')+'</div></div>';
 }
 function mobileTop(){return '<div class="mobile-topbar"><div class="mobile-topbar-inner"><div class="flex gap-8" style="align-items:center"><div class="sidebar-logo" style="width:30px;height:30px;font-size:13px">H</div><span class="fw-800" style="font-size:15px">HomeLinq Pro</span></div><div class="badge badge-success">Gas Safe ✓</div></div></div>'}
+
+// ===== PHASE 3: parts & prices (own trade prices from receipts + anonymous shared ranges) =====
+var parts={q:'',key:null,rows:null,loading:false,error:'',tab:'parts',sel:null,hist:null,pool:{},sup:null,adding:false,t:null,dl:null};
+function partsLoad(force){
+  if(!currentUser||!sb)return;var k=parts.q;
+  if(!force&&(parts.key===k||parts.loading))return;
+  parts.loading=true;parts.key=k;parts.error='';
+  sb.rpc('find_parts',{p_query:k,p_limit:100}).then(function(res){
+    parts.loading=false;
+    if(res.error){parts.error=res.error.message;parts.rows=[]}else{parts.rows=res.data||[];if(!k){parts.dl=parts.rows;partsDatalist()}}
+    if(parts.key!==parts.q){partsLoad()}else if(S.screen==='parts')render();
+  });
+}
+function partsSearch(v){parts.q=String(v||'').trim().substring(0,80);clearTimeout(parts.t);parts.t=setTimeout(function(){partsLoad();},350)}
+function partsTab(t){parts.tab=t;parts.sel=null;if(t==='suppliers')partsLoadSuppliers();render()}
+function partsOpen(id){
+  var p=(parts.rows||[]).find(function(r){return r.id===id});if(!p)return;
+  parts.sel=p;parts.hist=null;render();window.scrollTo(0,0);
+  sb.from('part_prices').select('id,unit_price,vat,qty,bought_on,supplier_code,source,job_id,suppliers(name,branch)').eq('part_id',id).order('bought_on',{ascending:false}).limit(60).then(function(res){
+    if(!parts.sel||parts.sel.id!==id)return;parts.hist=res.error?[]:(res.data||[]);render();
+  });
+  if(String(p.match_key||'').indexOf('PN:')===0&&!parts.pool[p.match_key]){
+    sb.rpc('part_price_pool',{p_match_key:p.match_key}).then(function(res){parts.pool[p.match_key]=res.error?{enough:false}:res.data;if(S.screen==='parts')render()});
+  }
+}
+function partsLoadSuppliers(){
+  if(!currentUser||!sb)return;
+  sb.from('suppliers').select('id,name,branch,account_number').order('name').then(function(res){
+    var list=res.error?[]:(res.data||[]);
+    sb.from('part_prices').select('supplier_id,unit_price,qty,vat,bought_on').limit(5000).then(function(r2){
+      var by={};(r2.data||[]).forEach(function(x){if(!x.supplier_id)return;var b=by[x.supplier_id]||(by[x.supplier_id]={n:0,spend:0,last:''});b.n++;b.spend+=Number(x.unit_price)*Number(x.qty||1);if(x.bought_on>b.last)b.last=x.bought_on});
+      parts.sup=list.map(function(s){var b=by[s.id]||{n:0,spend:0,last:''};return {id:s.id,name:s.name,branch:s.branch,acct:s.account_number,n:b.n,spend:b.spend,last:b.last}});
+      if(S.screen==='parts')render();
+    });
+  });
+}
+function partsSaveAcct(id,v){sb.from('suppliers').update({account_number:String(v||'').trim().substring(0,40)||null}).eq('id',id).then(function(res){toast(res.error?'error':'success',res.error?'Could not save: '+res.error.message:'Account number saved')})}
+function _ppSup(s){return s?esc(s.name)+(s.branch?' ('+esc(s.branch)+')':''):'—'}
+function _ppPool(p){
+  if(String(p.match_key||'').indexOf('PN:')!==0)return '<div class="text-sm text-muted">Add the maker\'s part number to see what other engineers pay.</div>';
+  var r=parts.pool[p.match_key];if(!r)return '<div class="text-sm text-muted">Checking shared prices…</div>';
+  if(!r.enough)return '<div class="text-sm text-muted">Not enough shared prices yet for this part number (needs 3 engineers in the last 12 months).</div>';
+  return '<div class="text-sm">Other engineers paid <b>'+_wizGBP(r.low)+' – '+_wizGBP(r.high)+'</b>, typically <b>'+_wizGBP(r.typical)+'</b> before VAT <span class="text-muted">('+r.engineers+' engineers, last 12 months, anonymous)</span></div>';
+}
+function pgParts(){
+  partsLoad();
+  var tb=function(t,l){return '<button class="btn '+(parts.tab===t?'btn-primary':'btn-secondary')+' btn-sm" onclick="partsTab(\''+t+'\')">'+l+'</button>'};
+  var h='<div class="main-header"><div class="flex-between" style="flex-wrap:wrap;gap:10px"><div><h1>🔩 Parts &amp; prices</h1><p>What you paid, where, and where it was cheapest — built from your receipts. Prices are per item, before VAT.</p></div>'+
+    '<div class="flex gap-8">'+tb('parts','Parts')+tb('suppliers','Suppliers')+'<button class="btn btn-secondary btn-sm" onclick="parts.adding=!parts.adding;render()">'+(parts.adding?'Close':'+ Add a price')+'</button></div></div></div>';
+  if(parts.adding)h+=_ppAddForm();
+  if(parts.tab==='suppliers')return h+_ppSuppliers();
+  if(parts.sel)h+=_ppDetail(parts.sel);
+  h+='<div class="card"><input class="input mb-16" placeholder="Search by part name, maker, part number or merchant code" value="'+esc(parts.q)+'" oninput="partsSearch(this.value)">';
+  if(parts.error)return h+'<div class="text-sm" style="color:var(--danger)">'+esc(parts.error)+'</div></div>';
+  if(!parts.rows)return h+'<div class="text-sm text-muted">Loading…</div></div>';
+  if(!parts.rows.length)return h+'<div class="text-sm text-muted" style="padding:10px 0">'+(parts.q?'No parts match “'+esc(parts.q)+'”.':'No parts yet. Send Moti a photo of a merchant receipt (📷 in the chat) and approve “Add parts to your parts list”, or tap “+ Add a price”.')+'</div></div>';
+  h+='<div class="table-wrap"><table style="width:100%;font-size:13px"><thead><tr><th>Part</th><th>Last paid</th><th>Cheapest (12 months)</th><th style="text-align:right">Bought</th></tr></thead><tbody>';
+  parts.rows.forEach(function(p){
+    var l=p.last||{},c=p.cheapest||{};
+    h+='<tr style="cursor:pointer" onclick="partsOpen(\''+p.id+'\')"><td><div class="fw-700">'+esc(p.name)+'</div><div class="text-muted" style="font-size:11px">'+esc([p.manufacturer,p.part_number].filter(Boolean).join(' · '))+'</div></td>'+
+      '<td>'+(l.price!=null?_wizGBP(l.price)+'<div class="text-muted" style="font-size:11px">'+esc(l.supplier||'')+' · '+_wizUK(l.date)+'</div>':'—')+'</td>'+
+      '<td>'+(c.price!=null?_wizGBP(c.price)+'<div class="text-muted" style="font-size:11px">'+esc(c.supplier||'')+'</div>':'—')+'</td><td style="text-align:right">'+(p.times_bought||0)+'×</td></tr>';
+  });
+  return h+'</tbody></table></div></div>';
+}
+function _ppDetail(p){
+  var h='<div class="card mb-16"><div class="flex-between mb-8" style="gap:10px"><div><div class="card-title">'+esc(p.name)+'</div><div class="text-sm text-muted">'+esc([p.manufacturer,p.part_number?'Part no. '+p.part_number:''].filter(Boolean).join(' · ')||'No maker\'s part number yet')+'</div></div><button class="btn btn-secondary btn-sm" onclick="parts.sel=null;render()">Close</button></div>'+
+    '<div class="mb-16">'+_ppPool(p)+'</div>';
+  if(!parts.hist)return h+'<div class="text-sm text-muted">Loading price history…</div></div>';
+  h+='<div class="table-wrap"><table style="width:100%;font-size:13px"><thead><tr><th>Date</th><th>Supplier</th><th>Their code</th><th style="text-align:right">Qty</th><th style="text-align:right">Each (ex VAT)</th></tr></thead><tbody>';
+  parts.hist.forEach(function(x){h+='<tr><td>'+_wizUK(x.bought_on)+'</td><td>'+_ppSup(x.suppliers)+'</td><td>'+esc(x.supplier_code||'')+'</td><td style="text-align:right">'+Number(x.qty)+'</td><td style="text-align:right" class="fw-700">'+_wizGBP(x.unit_price)+'</td></tr>'});
+  return h+'</tbody></table></div></div>';
+}
+function _ppSuppliers(){
+  if(!parts.sup){partsLoadSuppliers();return '<div class="card"><div class="text-sm text-muted">Loading…</div></div>'}
+  if(!parts.sup.length)return '<div class="card"><div class="text-sm text-muted">No suppliers yet — they\'re added automatically from your receipts.</div></div>';
+  var h='<div class="card"><div class="table-wrap"><table style="width:100%;font-size:13px"><thead><tr><th>Supplier</th><th>Your account no.</th><th style="text-align:right">Items bought</th><th style="text-align:right">Spent (ex VAT)</th><th>Last</th></tr></thead><tbody>';
+  parts.sup.forEach(function(s){h+='<tr><td class="fw-700">'+esc(s.name)+(s.branch?'<div class="text-muted" style="font-size:11px">'+esc(s.branch)+'</div>':'')+'</td><td><input class="input" style="padding:4px 8px;font-size:12px;max-width:140px" value="'+esc(s.acct||'')+'" placeholder="—" onchange="partsSaveAcct(\''+s.id+'\',this.value)"></td><td style="text-align:right">'+s.n+'</td><td style="text-align:right">'+_wizGBP(s.spend)+'</td><td>'+_wizUK(s.last)+'</td></tr>'});
+  return h+'</tbody></table></div></div>';
+}
+function _ppAddForm(){
+  var f=function(id,ph,type,w){return '<input id="pp-'+id+'" class="input" placeholder="'+ph+'"'+(type?' type="'+type+'" step="0.01"':'')+' style="flex:1;min-width:'+(w||140)+'px">'};
+  return '<div class="card mb-16"><div class="card-title mb-8">Add a price</div><div class="text-sm text-muted mb-8">Records what you paid so you can look it up later. It doesn\'t go into your books unless you tick the box.</div>'+
+    '<div class="flex gap-8 mb-8" style="flex-wrap:wrap">'+f('sup','Supplier (e.g. City Plumbing)')+f('branch','Branch (optional)')+'<input id="pp-date" class="input" type="date" value="'+localDateKey(new Date())+'" style="max-width:170px"></div>'+
+    '<div class="flex gap-8 mb-8" style="flex-wrap:wrap">'+f('name','Part name',null,200)+f('maker','Maker (optional)')+f('pn','Maker\'s part number (optional)')+f('code','Merchant\'s code (optional)')+'</div>'+
+    '<div class="flex gap-8 mb-8" style="flex-wrap:wrap">'+f('qty','Qty','number',70)+f('price','Price each before VAT £','number',120)+(S.engineer.vatReg?f('vat','VAT on this line £','number',120):'')+'</div>'+
+    '<label class="text-sm" style="display:flex;gap:6px;align-items:center;margin-bottom:10px"><input type="checkbox" id="pp-exp"> Also add it to my expenses (Parts &amp; Materials) — leave unticked if you\'ve already logged this receipt</label>'+
+    '<button class="btn btn-primary btn-sm" onclick="partsAddSave()">Save price</button></div>';
+}
+function partsAddSave(){
+  var g=function(id){var e=document.getElementById('pp-'+id);return e?String(e.value||'').trim():''};
+  var sup=g('sup'),name=g('name'),price=parseFloat(g('price')),qty=parseFloat(g('qty'))||1,vat=S.engineer.vatReg?Math.max(0,parseFloat(g('vat'))||0):0,date=g('date')||localDateKey(new Date());
+  if(!sup){toast('error','Enter the supplier');return}if(!name){toast('error','Enter the part name');return}
+  if(!(price>=0)||g('price')===''){toast('error','Enter the price each before VAT');return}if(qty<=0){toast('error','Qty must be more than 0');return}
+  var alsoExp=document.getElementById('pp-exp')&&document.getElementById('pp-exp').checked;
+  sb.rpc('log_part_purchase',{p_supplier:sup,p_branch:g('branch'),p_bought_on:date,p_lines:[{name:name,manufacturer:g('maker'),part_number:g('pn'),supplier_code:g('code'),qty:qty,unit_price:price,vat:vat}],p_job_id:null,p_source:'manual'}).then(function(res){
+    if(res.error){toast('error','Could not save: '+res.error.message);return}
+    if(alsoExp){var cat=HMRC_CATS.find(function(c){return c.id==='cogs'})||HMRC_CATS[0];var tot=Math.round((price*qty+vat)*100)/100;
+      var ge={id:nextGenExpId++,date:date,desc:name+' ('+sup+')',amt:tot,vat:vat,cat:cat.id,catLabel:cat.label,sa103:cat.sa103,receipt:false};generalExpenses.unshift(ge);saveExpenseToSupabase(ge);setTimeout(booksRefresh,1500)}
+    toast('success','Price saved'+(alsoExp?' and added to your expenses':''));parts.adding=false;parts.sup=null;partsLoad(true);
+  });
+}
+// Job expense description: suggest parts already bought, and show what was paid last
+function partsDatalist(){
+  var dl=document.getElementById('parts-dl');if(!dl){dl=document.createElement('datalist');dl.id='parts-dl';document.body.appendChild(dl)}
+  dl.innerHTML=(parts.dl||[]).slice(0,100).map(function(p){return '<option value="'+esc(p.name)+'">'+(p.last&&p.last.price!=null?esc(_wizGBP(p.last.price)+' at '+(p.last.supplier||'')):'')+'</option>'}).join('');
+}
+function partsHint(jobId,v){
+  var el=document.getElementById('jexp-sug-'+jobId);if(!el)return;
+  var p=(parts.dl||[]).find(function(r){return String(r.name).toLowerCase()===String(v||'').trim().toLowerCase()});
+  if(!p||!p.last){return}
+  el.innerHTML='<div class="text-sm text-muted">🔩 Last paid '+_wizGBP(p.last.price)+' each before VAT at '+esc(p.last.supplier||'')+' ('+_wizUK(p.last.date)+')'+(p.cheapest&&p.cheapest.price<p.last.price?' · cheapest '+_wizGBP(p.cheapest.price)+' at '+esc(p.cheapest.supplier||''):'')+'</div>';
+}
+function partsWarm(){if(!parts.dl&&currentUser&&sb&&S.role!=='customer'){parts.dl=[];sb.rpc('find_parts',{p_query:'',p_limit:100}).then(function(res){if(!res.error){parts.dl=res.data||[];partsDatalist()}})}}
 
 // ===== PHASE 2: job photos (private storage) + Moti activity =====
 function _isUuid(x){return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(x||''))}
@@ -7643,7 +7759,7 @@ function renderJobExpenses(j){
   }).join('');
   return '<div class="job-expenses" onclick="event.stopPropagation()"><div class="job-expenses-header"><div class="job-expenses-title">Job Expenses ('+j.expenses.length+')</div></div>'+
     (rows||'<div class="text-sm text-muted" style="padding:4px 0">No expenses yet</div>')+
-    '<div class="exp-add-row" onclick="event.stopPropagation()" style="flex-wrap:wrap;gap:6px">'+buildExpCatDropdown(j.id)+'<input id="jexp-desc-'+j.id+'" class="input" placeholder="Expense description" onclick="event.stopPropagation()" style="padding:6px 10px;font-size:12px;flex:1;min-width:120px"><input id="jexp-amt-'+j.id+'" class="exp-amt-input input" type="number" step="0.01" placeholder="£" onclick="event.stopPropagation()" style="padding:6px 10px;font-size:12px;max-width:80px">'+(S.engineer.vatReg?'<input id="jexp-vat-'+j.id+'" class="input" type="number" step="0.01" placeholder="VAT £" title="VAT on the receipt" onclick="event.stopPropagation()" style="padding:6px 10px;font-size:12px;max-width:80px">':'')+'<button onclick="event.stopPropagation();addJobExpense(\''+j.id+'\')">+ Add</button></div>'+
+    '<div class="exp-add-row" onclick="event.stopPropagation()" style="flex-wrap:wrap;gap:6px">'+buildExpCatDropdown(j.id)+'<input id="jexp-desc-'+j.id+'" class="input" list="parts-dl" oninput="partsHint(\''+j.id+'\',this.value)" placeholder="Expense description" onclick="event.stopPropagation()" style="padding:6px 10px;font-size:12px;flex:1;min-width:120px"><input id="jexp-amt-'+j.id+'" class="exp-amt-input input" type="number" step="0.01" placeholder="£" onclick="event.stopPropagation()" style="padding:6px 10px;font-size:12px;max-width:80px">'+(S.engineer.vatReg?'<input id="jexp-vat-'+j.id+'" class="input" type="number" step="0.01" placeholder="VAT £" title="VAT on the receipt" onclick="event.stopPropagation()" style="padding:6px 10px;font-size:12px;max-width:80px">':'')+'<button onclick="event.stopPropagation();addJobExpense(\''+j.id+'\')">+ Add</button></div>'+
     '<div id="jexp-sug-'+j.id+'" style="padding:4px 0"></div>'+
     (j.expenses.length?'<div class="exp-summary"><div class="exp-summary-item"><span class="exp-summary-label">Total:</span><span class="exp-summary-val">£'+totalExp.toFixed(2)+'</span></div><div class="exp-summary-item"><span class="exp-summary-label">Billed to client:</span><span class="exp-summary-val" style="color:var(--success)">£'+billableTotal.toFixed(2)+'</span></div><div class="exp-summary-item"><span class="exp-summary-label">Your books:</span><span class="exp-summary-val" style="color:var(--warning)">£'+(totalExp-billableTotal).toFixed(2)+'</span></div></div>':'')+'</div>';
 }
@@ -8189,7 +8305,7 @@ function pgEditJob(){
       }).join(''):'<div class="text-center text-muted" style="padding:16px">No expenses yet</div>')+
       '<div style="margin-top:12px">'+buildExpCatDropdown(j.id)+'</div>'+
       '<div id="jexp-sug-'+j.id+'" style="padding:4px 0"></div>'+
-      '<div class="exp-add-row" style="margin-top:8px"><input id="jexp-desc-'+j.id+'" class="input" placeholder="e.g. 15mm valve" style="padding:8px 10px;font-size:13px;flex:1"><input id="jexp-amt-'+j.id+'" class="input" type="number" step="0.01" placeholder="£" style="padding:8px 10px;font-size:13px;max-width:90px">'+(S.engineer.vatReg?'<input id="jexp-vat-'+j.id+'" class="input" type="number" step="0.01" placeholder="VAT £" title="VAT on the receipt" style="padding:8px 10px;font-size:13px;max-width:90px">':'')+'<button onclick="addJobExpense(\''+j.id+'\')">+ Add</button></div>'+
+      '<div class="exp-add-row" style="margin-top:8px"><input id="jexp-desc-'+j.id+'" class="input" list="parts-dl" oninput="partsHint(\''+j.id+'\',this.value)" placeholder="e.g. 15mm valve" style="padding:8px 10px;font-size:13px;flex:1"><input id="jexp-amt-'+j.id+'" class="input" type="number" step="0.01" placeholder="£" style="padding:8px 10px;font-size:13px;max-width:90px">'+(S.engineer.vatReg?'<input id="jexp-vat-'+j.id+'" class="input" type="number" step="0.01" placeholder="VAT £" title="VAT on the receipt" style="padding:8px 10px;font-size:13px;max-width:90px">':'')+'<button onclick="addJobExpense(\''+j.id+'\')">+ Add</button></div>'+
       (j.expenses.length?'<div style="margin-top:16px;padding-top:12px;border-top:2px solid var(--border)"><div style="display:flex;justify-content:space-between;padding:4px 0"><span class="text-sm text-muted">Total expenses</span><span class="fw-800">£'+totalExp.toFixed(2)+'</span></div>'+
       '<div style="display:flex;justify-content:space-between;padding:4px 0"><span class="text-sm" style="color:var(--success)">Billed to client</span><span class="fw-800" style="color:var(--success)">£'+billableTotal.toFixed(2)+'</span></div>'+
       '<div style="display:flex;justify-content:space-between;padding:4px 0"><span class="text-sm" style="color:var(--warning)">Your books only</span><span class="fw-800" style="color:var(--warning)">£'+(totalExp-billableTotal).toFixed(2)+'</span></div></div>':'')+'</div>';
@@ -9275,6 +9391,7 @@ function booksSaveSetting(field,val){
   if(!currentUser)return;var upd={};upd[field]=val;
   sb.from('engineers').update(upd).eq('id',currentUser.id).then(function(res){
     if(res.error){toast('error','Could not save: '+res.error.message);return}
+    if(field==='share_part_prices'){S.engineer.sharePartPrices=!!val;toast('success',val?'Sharing anonymous prices':'Not sharing your prices');render();return}
     S.engineer[field==='vehicle_method'?'vehicleMethod':'accountingBasis']=val;toast('success','Saved');booksRefresh();render();
   });
 }
@@ -9427,7 +9544,9 @@ function _bkSettingsCard(){
     '<div class="fw-700 text-sm">Van costs</div><div class="text-sm text-muted mb-8">Claim the mileage allowance (45p/25p a mile) or your actual van costs — not both.'+(vm?'':' Not chosen yet: mileage allowance is used.')+'</div>'+
     '<div class="flex gap-8 mb-16">'+opt('vehicle_method','mileage_allowance',vm,'Mileage allowance')+opt('vehicle_method','actual_costs',vm,'Actual van costs')+'</div>'+
     '<div class="fw-700 text-sm">How income is counted</div><div class="text-sm text-muted mb-8">Cash basis (the default for sole traders) counts income when you\'re paid. Accruals counts it when you invoice — only if you\'ve chosen accruals with HMRC.</div>'+
-    '<div class="flex gap-8">'+opt('accounting_basis','cash',ab,'Cash basis')+opt('accounting_basis','accruals',ab,'Accruals')+'</div></div>';
+    '<div class="flex gap-8">'+opt('accounting_basis','cash',ab,'Cash basis')+opt('accounting_basis','accruals',ab,'Accruals')+'</div></div>'+
+    '<div class="card mb-16"><div class="card-title mb-8">🔩 Shared part prices</div><div class="text-sm text-muted mb-8">Add your part prices (no names, suppliers\' account numbers, customers or jobs) to anonymous price ranges, so every engineer can see what a part typically costs. A range only shows once 3 or more engineers have prices for that part number.</div>'+
+    '<div class="flex gap-8"><button class="btn '+(S.engineer.sharePartPrices!==false?'btn-primary':'btn-secondary')+' btn-sm" onclick="booksSaveSetting(\'share_part_prices\',true)">Share anonymously</button><button class="btn '+(S.engineer.sharePartPrices===false?'btn-primary':'btn-secondary')+' btn-sm" onclick="booksSaveSetting(\'share_part_prices\',false)">Don\'t share</button></div></div>';
 }
 function _bkFileBase(d){var r=d.period;return 'HomeLinq-books_'+r.from+'_to_'+r.to}
 function _bkSave(blob,name){var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();document.body.removeChild(a);setTimeout(function(){URL.revokeObjectURL(a.href)},2000)}

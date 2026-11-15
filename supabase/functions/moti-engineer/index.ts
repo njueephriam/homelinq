@@ -7,6 +7,7 @@
 // v19: books — VAT choice on invoices, complete_job tool, HMRC categories + VAT on expenses, figures from get_books, every write tagged created_via='moti'
 // v20: photos (Moti reads images), up to 6 proposals approved together (confirmActions), activity log (moti_activity), new tools:
 //      log_job_expense, upsert_boiler_passport, save_imported_certificate, attach_photo_to_job, add_job_note
+// v21: parts log — log_parts (receipt lines into the engineer's parts list) and find_part_prices (own prices + anonymous shared range)
 // Secret required: ANTHROPIC_API_KEY
 // Optional secrets for push: VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT
 // ============================================================
@@ -46,6 +47,8 @@ const READ_TOOLS = [
     input_schema: { type: "object", properties: { search: { type: "string" }, limit: { type: "number" } } } },
   { name: "financial_summary", description: "The engineer's books between two dates (YYYY-MM-DD) — the same figures as the Accounting page: turnover (income received), expenses claimed by Self Assessment box, mileage allowance, platform fees, net profit, VAT charged and reclaimable, money owed. The UK tax year runs 6 April to 5 April.",
     input_schema: { type: "object", properties: { from_date: { type: "string" }, to_date: { type: "string" } }, required: ["from_date","to_date"] } },
+  { name: "find_part_prices", description: "Search the engineer's own parts list (built from their receipts): what they paid per item before VAT, when and where, the cheapest supplier in the last year, and — only when at least 3 engineers have shared prices for that maker's part number — the anonymous typical price range. Use for 'what did I pay for…', 'where's cheapest for…', or to price a quote from real costs.",
+    input_schema: { type: "object", properties: { query: { type: "string", description: "part name, maker's part number or merchant code" } }, required: ["query"] } },
   { name: "open_import_wizard", description: "Show the engineer a button in this chat that opens HomeLinq's import wizard, to bring in customers, jobs, invoices, certificates and expenses from another system or spreadsheet. Use it whenever they want to import, migrate, move over from another platform or upload their records. Call it together with your reply.",
     input_schema: { type: "object", properties: {} } },
 ];
@@ -75,6 +78,9 @@ const WRITE_TOOLS = [
     input_schema: { type: "object", properties: { job_id: { type: "string" }, customer_name: { type: "string" }, kind: { type: "string", enum: ["receipt","data_plate","fault","site","certificate"] }, caption: { type: "string" } }, required: ["kind"] } },
   { name: "add_job_note", description: "Add a dated note to one of the engineer's jobs (e.g. what a photo shows, readings, advice given).",
     input_schema: { type: "object", properties: { job_id: { type: "string" }, customer_name: { type: "string" }, note: { type: "string" } }, required: ["job_id","note"] } },
+  { name: "log_parts", description: "Add the parts bought on a receipt or merchant invoice to the engineer's parts list with the prices paid, so they can look prices up later and reuse them in quotes. unit_price is per item BEFORE VAT; vat is the VAT for that line. Include the maker's part number and the merchant's own code when printed.",
+    input_schema: { type: "object", properties: { supplier: { type: "string" }, branch: { type: "string" }, date: { type: "string", description: "YYYY-MM-DD" }, job_id: { type: "string" },
+      lines: { type: "array", maxItems: 40, items: { type: "object", properties: { name: { type: "string" }, manufacturer: { type: "string" }, part_number: { type: "string" }, supplier_code: { type: "string" }, qty: { type: "number" }, unit_price: { type: "number" }, vat: { type: "number" } }, required: ["name","unit_price"] } } }, required: ["supplier","lines"] } },
   { name: "log_mileage", description: "Log a mileage entry.",
     input_schema: { type: "object", properties: { date: { type: "string" }, miles: { type: "number" }, from_location: { type: "string" }, to_location: { type: "string" } }, required: ["date","miles"] } },
   { name: "create_reminder", description: "Create a service reminder for a customer.",
@@ -96,6 +102,7 @@ function checkWrite(name: string, input: any, vatReg: boolean): string {
   if (name === "update_job_status" && input.status === "completed") return "To complete a job use the complete_job tool — it also creates the invoice, logs the mileage and sets the reminder.";
   if (name === "log_expense" && !EXP_CATS[input.category]) input.category = "other";
   if (name === "log_job_expense") { if (!EXP_CATS[input.category]) input.category = "cogs"; if (!vatReg) input.vat = 0; if (Number(input.vat) > Number(input.amount)) return "The VAT can't be more than the amount — check the receipt."; }
+  if (name === "log_parts" && (!Array.isArray(input.lines) || !input.lines.length)) return "There are no parts to add — list each item with its price.";
   if (name === "save_imported_certificate" && !/^\d{4}-\d{2}-\d{2}$/.test(String(input.issue_date || ""))) return "Give the issue date as YYYY-MM-DD (read it from the certificate), or ask the engineer.";
   return "";
 }
@@ -130,6 +137,17 @@ async function runRead(sb: any, name: string, input: any) {
       let q = sb.from("boiler_passports").select("id,address,postcode,boiler_make,boiler_model,status,last_service_date,next_due_date").limit(lim);
       if (input.search) q = q.ilike("address", "%" + input.search + "%");
       const { data, error } = await q; return error ? { error: error.message } : data;
+    }
+    if (name === "find_part_prices") {
+      const { data, error } = await sb.rpc("find_parts", { p_query: String(input.query || "").slice(0, 80), p_limit: 8 });
+      if (error) return { error: error.message };
+      const out: any[] = [];
+      for (const p of (data || [])) {
+        let shared: any = null;
+        if (String(p.match_key || "").indexOf("PN:") === 0) { const r = await sb.rpc("part_price_pool", { p_match_key: p.match_key }); shared = r.data || null; }
+        out.push({ name: p.name, manufacturer: p.manufacturer, part_number: p.part_number, times_bought: p.times_bought, last: p.last, cheapest_last_12_months: p.cheapest, shared_range: shared });
+      }
+      return { parts: out, note: "All prices are per item, before VAT. shared_range is anonymous and only shown when 3+ engineers have prices." };
     }
     if (name === "financial_summary") {
       const { data, error } = await sb.rpc("get_books", { p_from: input.from_date, p_to: input.to_date, p_lines: false });
@@ -256,6 +274,12 @@ async function runWrite(sb: any, engineerId: string, engName: string, token: str
       const { error } = await sb.from("jobs").update({ notes, updated_at: new Date().toISOString() }).eq("id", j.id);
       return error ? { error: error.message } : { noted: "job", id: j.id, _table: "jobs" };
     }
+    if (name === "log_parts") {
+      const lines = (Array.isArray(input.lines) ? input.lines : []).slice(0, 40).map((l: any) => ({ name: String(l.name || "").slice(0, 200), manufacturer: l.manufacturer || "", part_number: l.part_number || "", supplier_code: l.supplier_code || "", qty: Number(l.qty) || 1, unit_price: Number(l.unit_price) || 0, vat: vatReg ? (Number(l.vat) || 0) : 0 }));
+      const { data, error } = await sb.rpc("log_part_purchase", { p_supplier: input.supplier, p_branch: input.branch || "", p_bought_on: /^\d{4}-\d{2}-\d{2}$/.test(String(input.date || "")) ? input.date : new Date().toISOString().slice(0, 10),
+        p_lines: lines, p_job_id: /^[0-9a-f-]{36}$/i.test(String(input.job_id || "")) ? input.job_id : null, p_source: "moti" });
+      return error ? { error: error.message } : { logged: data.logged, supplier: input.supplier, _table: "part_prices" };
+    }
     if (name === "log_mileage") {
       const { data, error } = await sb.from("mileage_log").insert({ engineer_id: engineerId, date: input.date, miles: input.miles, from_location: input.from_location || null, to_location: input.to_location || null, created_via: "moti" }).select("id,date,miles").single();
       return error ? { error: error.message } : { created: "mileage", ...data };
@@ -281,6 +305,7 @@ function summarise(tool: string, input: any): string {
   if (tool === "create_quote") return "Create a draft quote for " + input.customer_name + " — £" + (Number(input.parts_cost) + Number(input.labour_cost)) + " (parts £" + input.parts_cost + " + labour £" + input.labour_cost + ")";
   if (tool === "log_expense") return "Log an expense — \"" + input.description + "\" — £" + input.amount + " on " + input.date + " (" + (EXP_CATS[input.category] || "Other") + ")";
   if (tool === "log_mileage") return "Log " + input.miles + " miles on " + input.date;
+  if (tool === "log_parts") { const ls = Array.isArray(input.lines) ? input.lines : []; return "Add " + ls.length + " part" + (ls.length === 1 ? "" : "s") + " from " + input.supplier + " to your parts list (" + ls.slice(0, 2).map((l: any) => l.name + " £" + Number(l.unit_price || 0).toFixed(2)).join(", ") + (ls.length > 2 ? ", …" : "") + ")"; }
   if (tool === "log_job_expense") return "Log £" + Number(input.amount || 0).toFixed(2) + (Number(input.vat) ? " (VAT £" + Number(input.vat).toFixed(2) + ")" : "") + " — \"" + input.description + "\" to the job" + (input.customer_name ? " for " + input.customer_name : "") + (input.billable === false ? " (not re-charged)" : "");
   if (tool === "upsert_boiler_passport") return "Save the boiler details (" + [input.boiler_make, input.boiler_model].filter(Boolean).join(" ") + (input.gc_number ? ", GC " + input.gc_number : "") + (input.serial_number ? ", serial " + input.serial_number : "") + ") to the boiler passport for " + input.address;
   if (tool === "save_imported_certificate") return "Save the old certificate" + (input.certificate_number ? " " + input.certificate_number : "") + " for " + input.property_address + " as an imported record (issued " + input.issue_date + (input.original_engineer_name ? " by " + input.original_engineer_name : "") + ") and set the renewal reminder";
@@ -300,12 +325,13 @@ function pushMessageFor(tool: string, r: any): string {
   if (tool === "create_quote") return "Quote drafted for " + (r.customer_name || "your customer") + (r.total != null ? " — £" + r.total : "");
   if (tool === "log_expense") return "Expense logged" + (r.amount != null ? " — £" + r.amount : "");
   if (tool === "log_mileage") return "Mileage logged" + (r.miles != null ? " — " + r.miles + " miles" : "");
+  if (tool === "log_parts") return "Added " + (r.logged || 0) + " part(s) to your parts list";
   if (tool === "create_reminder") return "Service reminder set for " + (r.customer_name || "your customer");
   if (tool === "add_boiler_history") return "Boiler passport updated";
   return "Moti finished the task you asked for.";
 }
 
-const TOOL_TABLE: Record<string, string> = { create_invoice: "invoices", complete_job: "invoices", send_invoice: "invoices", chase_payment: "invoices", update_job_status: "jobs", create_quote: "quotes", log_expense: "general_expenses", log_job_expense: "job_expenses", log_mileage: "mileage_log", create_reminder: "reminders", add_boiler_history: "boiler_history", upsert_boiler_passport: "boiler_passports", save_imported_certificate: "cp12_certificates", attach_photo_to_job: "job_photos", add_job_note: "jobs" };
+const TOOL_TABLE: Record<string, string> = { create_invoice: "invoices", complete_job: "invoices", send_invoice: "invoices", chase_payment: "invoices", update_job_status: "jobs", create_quote: "quotes", log_expense: "general_expenses", log_job_expense: "job_expenses", log_mileage: "mileage_log", create_reminder: "reminders", add_boiler_history: "boiler_history", upsert_boiler_passport: "boiler_passports", save_imported_certificate: "cp12_certificates", attach_photo_to_job: "job_photos", add_job_note: "jobs", log_parts: "part_prices" };
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function recordIdFor(tool: string, input: any, r: any): string | null {
   const c = [r && r.id, tool === "send_invoice" || tool === "chase_payment" ? input.invoice_id : null, tool === "update_job_status" ? input.job_id : null];
@@ -420,8 +446,9 @@ Deno.serve(async (req: Request) => {
       "Use the tools to look up the engineer's real jobs, invoices, quotes, finances, reminders, CP12 certificates and boiler passports. Never guess figures or invent data — if you need data, call a tool.",
       "You can create invoices, complete jobs (which invoices them, logs mileage and sets the annual reminder), email invoices to customers, send polite payment-chase reminders and log expenses — offer these naturally when they would help.",
       "MONEY & VAT: " + firstName + (vatReg ? " IS VAT-registered — for every invoice or job completion you must ask which VAT rate to use (20%, 5% or no VAT); never assume." : " is not VAT-registered — invoices have no VAT.") + " Everything you create goes into their books (Accounting page) exactly like work done in the app. For figures, use financial_summary — never add things up yourself. Log expenses with the right HMRC category. Tax figures are estimates; HomeLinq does not file with HMRC.",
-      "PHOTOS: when the engineer sends a photo, say briefly what you can actually see and read — never guess hidden, cut-off or blurry details; say plainly what you can't read and ask for a clearer photo if needed. Data plate → propose upsert_boiler_passport for the property (use list_jobs to find today's job address if they don't say). Fault code on a display → explain what that code generally indicates for that make/model and sensible checks, clearly as general guidance to confirm against the manufacturer's manual; offer a quote if parts are likely. Receipt or merchant invoice → read supplier, date, items, VAT and total; propose log_job_expense for the job it belongs to (check list_jobs) or log_expense for a general business cost. Old paper gas safety certificate → propose save_imported_certificate, keeping the ORIGINAL engineer's name, Gas Safe number, dates and certificate number. When something is worth keeping, also propose attach_photo_to_job. Don't repeat customers' personal details from photos more than needed.",
+      "PHOTOS: when the engineer sends a photo, say briefly what you can actually see and read — never guess hidden, cut-off or blurry details; say plainly what you can't read and ask for a clearer photo if needed. Data plate → propose upsert_boiler_passport for the property (use list_jobs to find today's job address if they don't say). Fault code on a display → explain what that code generally indicates for that make/model and sensible checks, clearly as general guidance to confirm against the manufacturer's manual; offer a quote if parts are likely. Receipt or merchant invoice → read supplier, date, items, VAT and total; propose log_job_expense for the job it belongs to (check list_jobs) or log_expense for a general business cost, and also propose log_parts so each item and its price goes into their parts list. Old paper gas safety certificate → propose save_imported_certificate, keeping the ORIGINAL engineer's name, Gas Safe number, dates and certificate number. When something is worth keeping, also propose attach_photo_to_job. Don't repeat customers' personal details from photos more than needed.",
       "SAFETY: never state whether an installation is safe or unsafe, and never classify it (Immediately Dangerous / At Risk / Not to Current Standards). That is " + firstName + "'s professional judgement under the Gas Industry Unsafe Situations Procedure. You may point out what you can see (e.g. corrosion, staining, a damaged flue) and suggest they check it.",
+      "PARTS & PRICES: when asked what something costs, where it's cheapest, or to price a job, call find_part_prices first. Quote their own recent prices (per item, before VAT) with supplier and date; mention the anonymous shared range only when it is provided. Never invent prices — if they have none, say so (web price search is coming).",
       "SEVERAL ACTIONS: you may propose up to 6 changes at once by calling several tools in one reply — the engineer ticks the ones they want and approves them together.",
       "IMPORTING DATA: when the engineer wants to bring their records over from another platform (Commusoft, Gas Engineer Software, Tradify, Joblogic, ServiceM8, BigChange) or from spreadsheets, call open_import_wizard so a button appears, and explain briefly: they export their customers, jobs, invoices, certificates and expenses as CSV or Excel from the old system, then tap the paperclip in this chat (or Settings → Import Data → Start import) and attach the files — several at once is fine. Inside the import, you (Moti) read the files with them: you work out which system and what each file is, match the columns, spot problems and link invoices and jobs to the right customers, and they approve every change. Then they review every row (problems, duplicates, totals) before anything is saved; old invoices are never emailed or chased; imported certificates keep the original engineer's details; and they can undo an import afterwards. Customers' personal details stay on their device — you only see column headings and patterns. You cannot read files inside this chat itself — always point to the import.",
       "For anything that CHANGES data or sends an email, just call the matching tool. The system automatically pauses and asks " + firstName + " to confirm before it commits — so you do NOT need to ask 'shall I?' yourself, and never claim something is done unless a tool result confirms it.",

@@ -166,3 +166,120 @@ revoke execute on function public.bump_moti_import_usage(uuid) from public, anon
 -- Tested (rolled back): own photos only, can't write others' photos or the activity log, storage folder enforced,
 -- import logged once, can't read others' activity.
 -- NOTE (open question for the owner): boiler_passports policies let ANY engineer read/update ANY passport (addresses).
+
+-- ============================================================
+-- Phase 3 D1 (15 Nov 2026): suppliers & parts log  [migration phase3_d1_parts_log]
+-- ============================================================
+create table if not exists public.suppliers (
+  id uuid primary key default gen_random_uuid(),
+  engineer_id uuid not null references auth.users(id) on delete cascade,
+  name text not null, branch text not null default '', account_number text,
+  created_at timestamptz not null default now()
+);
+create unique index if not exists suppliers_uniq on public.suppliers(engineer_id, lower(name), lower(branch));
+alter table public.suppliers enable row level security;
+drop policy if exists "Engineers manage own suppliers" on public.suppliers;
+create policy "Engineers manage own suppliers" on public.suppliers for all using (engineer_id = auth.uid()) with check (engineer_id = auth.uid());
+create or replace function public.part_match_key(p_part_number text, p_name text) returns text language sql immutable as $$
+  select case when nullif(regexp_replace(upper(coalesce(p_part_number,'')), '[^A-Z0-9]', '', 'g'), '') is not null
+              then 'PN:' || regexp_replace(upper(p_part_number), '[^A-Z0-9]', '', 'g')
+              else 'NM:' || regexp_replace(lower(trim(coalesce(p_name,''))), '\s+', ' ', 'g') end
+$$;
+create table if not exists public.parts (
+  id uuid primary key default gen_random_uuid(),
+  engineer_id uuid not null references auth.users(id) on delete cascade,
+  name text not null, manufacturer text, part_number text, category text not null default 'cogs',
+  match_key text not null,
+  created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+create unique index if not exists parts_uniq on public.parts(engineer_id, match_key);
+create index if not exists parts_pn on public.parts(match_key);
+alter table public.parts enable row level security;
+drop policy if exists "Engineers manage own parts" on public.parts;
+create policy "Engineers manage own parts" on public.parts for all using (engineer_id = auth.uid()) with check (engineer_id = auth.uid());
+create table if not exists public.part_prices (
+  id uuid primary key default gen_random_uuid(),
+  engineer_id uuid not null references auth.users(id) on delete cascade,
+  part_id uuid not null references public.parts(id) on delete cascade,
+  supplier_id uuid references public.suppliers(id) on delete set null,
+  unit_price numeric not null check (unit_price >= 0),
+  vat numeric not null default 0, qty numeric not null default 1 check (qty > 0),
+  bought_on date not null default current_date,
+  supplier_code text, job_id uuid references public.jobs(id) on delete set null, photo_id uuid references public.job_photos(id) on delete set null,
+  source text not null default 'manual' check (source in ('receipt','manual','import','photo','moti')),
+  created_at timestamptz not null default now()
+);
+create index if not exists part_prices_part on public.part_prices(part_id, bought_on desc);
+alter table public.part_prices enable row level security;
+drop policy if exists "Engineers manage own part prices" on public.part_prices;
+create policy "Engineers manage own part prices" on public.part_prices for all using (engineer_id = auth.uid()) with check (engineer_id = auth.uid());
+alter table public.engineers add column if not exists share_part_prices boolean not null default true;
+create or replace function public.log_part_purchase(p_supplier text, p_branch text, p_bought_on date, p_lines jsonb, p_job_id uuid default null, p_source text default 'manual')
+returns jsonb language plpgsql security invoker set search_path = public as $$
+declare uid uuid := auth.uid(); sid uuid; pid uuid; l jsonb; n int := 0; k text; src text;
+begin
+  if uid is null then raise exception 'Sign in required'; end if;
+  if jsonb_typeof(p_lines) <> 'array' or jsonb_array_length(p_lines) = 0 then raise exception 'No parts given'; end if;
+  if jsonb_array_length(p_lines) > 40 then raise exception 'Too many lines (max 40)'; end if;
+  src := case when p_source in ('receipt','manual','import','photo','moti') then p_source else 'manual' end;
+  if nullif(trim(coalesce(p_supplier,'')),'') is not null then
+    insert into public.suppliers(engineer_id, name, branch) values (uid, trim(p_supplier), coalesce(trim(p_branch),''))
+      on conflict (engineer_id, lower(name), lower(branch)) do update set name = excluded.name returning id into sid;
+  end if;
+  for l in select * from jsonb_array_elements(p_lines) loop
+    if nullif(trim(coalesce(l->>'name','')),'') is null or (l->>'unit_price') is null then continue; end if;
+    k := public.part_match_key(l->>'part_number', l->>'name');
+    insert into public.parts(engineer_id, name, manufacturer, part_number, category, match_key)
+      values (uid, left(trim(l->>'name'),200), nullif(trim(coalesce(l->>'manufacturer','')),''), nullif(trim(coalesce(l->>'part_number','')),''), coalesce(nullif(l->>'category',''),'cogs'), k)
+      on conflict (engineer_id, match_key) do update set
+        manufacturer = coalesce(public.parts.manufacturer, excluded.manufacturer),
+        part_number = coalesce(public.parts.part_number, excluded.part_number), updated_at = now()
+      returning id into pid;
+    insert into public.part_prices(engineer_id, part_id, supplier_id, unit_price, vat, qty, bought_on, supplier_code, job_id, source)
+      values (uid, pid, sid, round((l->>'unit_price')::numeric, 2), round(coalesce((l->>'vat')::numeric, 0), 2), greatest(coalesce((l->>'qty')::numeric, 1), 0.01),
+              coalesce(p_bought_on, current_date), nullif(trim(coalesce(l->>'supplier_code','')),''), p_job_id, src);
+    n := n + 1;
+  end loop;
+  return jsonb_build_object('logged', n, 'supplier_id', sid);
+end $$;
+revoke execute on function public.log_part_purchase(text, text, date, jsonb, uuid, text) from public, anon;
+grant execute on function public.log_part_purchase(text, text, date, jsonb, uuid, text) to authenticated;
+
+create or replace function public.part_price_pool(p_match_key text)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare r record;
+begin
+  if auth.uid() is null or not exists (select 1 from public.engineers where id = auth.uid()) then raise exception 'Engineers only'; end if;
+  if p_match_key is null or left(p_match_key, 3) <> 'PN:' then return jsonb_build_object('enough', false, 'reason', 'Shared prices need the maker''s part number'); end if;
+  select count(distinct pp.engineer_id) as engineers, count(*) as n,
+         min(pp.unit_price) as lo, percentile_cont(0.5) within group (order by pp.unit_price) as mid, max(pp.unit_price) as hi
+    into r
+    from public.part_prices pp join public.parts p on p.id = pp.part_id join public.engineers e on e.id = pp.engineer_id
+   where p.match_key = p_match_key and coalesce(e.share_part_prices, true) and pp.bought_on >= current_date - 365;
+  if coalesce(r.engineers, 0) < 3 then return jsonb_build_object('enough', false, 'engineers', coalesce(r.engineers,0)); end if;
+  return jsonb_build_object('enough', true, 'engineers', r.engineers, 'prices', r.n, 'low', round(r.lo, 2), 'typical', round(r.mid::numeric, 2), 'high', round(r.hi, 2));
+end $$;
+revoke execute on function public.part_price_pool(text) from public, anon;
+grant execute on function public.part_price_pool(text) to authenticated;
+
+create or replace function public.find_parts(p_query text default '', p_limit int default 30)
+returns jsonb language sql stable security invoker set search_path = public as $$
+  select coalesce(jsonb_agg(x order by (x->>'last_bought') desc nulls last), '[]'::jsonb) from (
+    select jsonb_build_object('id', p.id, 'name', p.name, 'manufacturer', p.manufacturer, 'part_number', p.part_number, 'category', p.category, 'match_key', p.match_key,
+      'times_bought', (select count(*) from public.part_prices pp where pp.part_id = p.id),
+      'last_bought', (select max(bought_on) from public.part_prices pp where pp.part_id = p.id),
+      'last', (select jsonb_build_object('price', pp.unit_price, 'date', pp.bought_on, 'supplier', s.name || case when s.branch <> '' then ' (' || s.branch || ')' else '' end, 'code', pp.supplier_code)
+               from public.part_prices pp left join public.suppliers s on s.id = pp.supplier_id where pp.part_id = p.id order by pp.bought_on desc, pp.created_at desc limit 1),
+      'cheapest', (select jsonb_build_object('price', pp.unit_price, 'date', pp.bought_on, 'supplier', s.name || case when s.branch <> '' then ' (' || s.branch || ')' else '' end)
+               from public.part_prices pp left join public.suppliers s on s.id = pp.supplier_id where pp.part_id = p.id and pp.bought_on >= current_date - 365 order by pp.unit_price asc, pp.bought_on desc limit 1)) as x
+    from public.parts p
+    where p.engineer_id = auth.uid()
+      and (coalesce(p_query,'') = '' or p.name ilike '%' || p_query || '%' or coalesce(p.part_number,'') ilike '%' || p_query || '%' or coalesce(p.manufacturer,'') ilike '%' || p_query || '%'
+           or exists (select 1 from public.part_prices pp where pp.part_id = p.id and coalesce(pp.supplier_code,'') ilike '%' || p_query || '%'))
+    limit greatest(1, least(coalesce(p_limit, 30), 200))
+  ) q
+$$;
+revoke execute on function public.find_parts(text, int) from public, anon;
+grant execute on function public.find_parts(text, int) to authenticated;
+-- Tested (rolled back): same pump from 2 suppliers merges on maker number (994-11158 = 99411158), last vs cheapest correct,
+-- merchant code searchable, other engineers can't see or write your parts, shared range hidden below 3 engineers and for name-only parts.
