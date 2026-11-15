@@ -33,3 +33,29 @@ create policy "Engineers read customers they serve" on public.customers
     or exists (select 1 from public.jobs j where j.customer_id = customers.id and j.engineer_id = auth.uid())
     or exists (select 1 from public.conversations c where c.customer_id = customers.id and c.engineer_id = auth.uid())
   );
+
+-- 15 Nov 2026: save_engineer_job fixed (applied live)
+--  * status/source text now mapped onto job_status / job_source enums
+--    (diagnosed -> in_progress; unknown status -> upcoming; unknown source -> direct/marketplace)
+--  * security: p_engineer_id must equal auth.uid()
+--  * SET search_path = public; customer_id only linked if a customers row exists
+
+-- 15 Nov 2026: PART B applied live, then recursion fix (policy subqueries on jobs/marketplace_jobs/
+-- conversations re-entered customers RLS). Final version uses a SECURITY DEFINER helper:
+-- create or replace function public.engineer_serves_customer(p_customer_id uuid) returns boolean
+--   language sql stable security definer set search_path = public as $$
+--   select auth.uid() is not null and (
+--     exists (select 1 from marketplace_jobs mj where mj.customer_id = p_customer_id
+--             and (mj.accepted_by = auth.uid() or mj.preferred_engineer_id = auth.uid()))
+--     or exists (select 1 from jobs j where j.customer_id = p_customer_id and j.engineer_id = auth.uid())
+--     or exists (select 1 from conversations c where c.customer_id = p_customer_id and c.engineer_id = auth.uid()));
+--   $$;
+-- create policy "Engineers read customers they serve" on public.customers
+--   for select to authenticated using (public.engineer_serves_customer(id));
+
+-- 15 Nov 2026 (0.2a, applied live): fixed saving
+--  * save_certificate: dates cast safely, status derived from expiry (valid/expiring_soon/expired),
+--    pass/fail kept in inspection_result, new p_data jsonb (full cert) -> cp12_certificates.data,
+--    auth.uid() guard, only links real customer accounts
+--  * send_invoice: sent_date now(), auth.uid() guard, never wipes customer link, only links real customers
+--  * general_expenses: added category column + trigger filling hmrc_category (also fixes Moti log_expense)

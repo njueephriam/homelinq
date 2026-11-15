@@ -929,6 +929,29 @@ function loadEngineerData() {
       render();
     }
   });
+  // Load this engineer's certificates (full detail kept in the data column)
+  sb.from('cp12_certificates').select('*').eq('engineer_id', currentUser.id).order('issue_date', {ascending: false}).then(function(res) {
+    if(res.error){console.log('Load certificates error:',res.error.message);return}
+    var rows = res.data || [];
+    cp12Certs = rows.map(function(r) {
+      var c = (r.data && typeof r.data === 'object') ? JSON.parse(JSON.stringify(r.data)) : {};
+      c.id = r.certificate_number || c.id || r.id;
+      c.certType = c.certType || r.cert_type || 'domestic';
+      c.prop = c.prop || r.property_address || '';
+      c.landlord = c.landlord || r.landlord_name || '';
+      c.tenant = c.tenant || r.tenant_name || '';
+      c.recipientEmail = c.recipientEmail || r.landlord_email || '';
+      c.date = c.date || r.issue_date || '';
+      c.expiry = c.expiry || r.expiry_date || '';
+      c.result = c.result || r.inspection_result || 'PASS';
+      c.appliances = (c.appliances && c.appliances.length) ? c.appliances : (r.appliances || []);
+      if (c.sent === undefined) c.sent = false;
+      c._supaId = r.id;
+      return c;
+    });
+    selCP12 = -1;
+    render();
+  });
   // Load mileage
   sb.from('mileage_log').select('*').eq('engineer_id', currentUser.id).order('date', {ascending: false}).then(function(res) {
     if(res.error){console.log('Load mileage error:',res.error.message);return}
@@ -6090,11 +6113,7 @@ function pgAccountChat(){
 }
 
 // ===== CP12 GAS SAFETY CERTIFICATE =====
-var cp12Certs=[
-  {id:'CP12-001',certType:'domestic',prop:'14 Maple Avenue, Manchester, M14 5HJ',landlord:'City Lettings Ltd',tenant:'Sarah Phillips',date:'2026-04-15',expiry:'2027-04-15',appliances:[{name:'Vaillant ecoTEC Pro 28',loc:'Kitchen',type:'Boiler',flue:'Room-sealed',vent:'N/A',op:19.8,st:21.0,safe:true},{name:'Valor Homeflame',loc:'Living Room',type:'Gas Fire',flue:'Open-flued',vent:'Air brick',op:11.2,st:12.5,safe:true}],result:'PASS',sent:true},
-  {id:'CP12-002',certType:'domestic',prop:'7 Pine Street, Salford, M3 1AE',landlord:'Mr. David K.',tenant:'Mike Thomas',date:'2026-05-02',expiry:'2027-05-02',appliances:[{name:'Worcester Greenstar 30i',loc:'Utility',type:'Boiler',flue:'Room-sealed',vent:'N/A',op:20.1,st:21.5,safe:true}],result:'PASS',sent:false},
-  {id:'CP12-003',certType:'domestic',prop:'22 Oak Road, Stockport, SK4 2AA',landlord:'Horizon Properties',tenant:'Emma Johnson',date:'2026-03-20',expiry:'2027-03-20',appliances:[{name:'Baxi 228',loc:'Kitchen',type:'Boiler',flue:'Room-sealed',vent:'N/A',op:18.5,st:20.0,safe:true},{name:'Belling Cooker',loc:'Kitchen',type:'Cooker',flue:'N/A',vent:'Extract fan',op:2.8,st:2.8,safe:true},{name:'Valor Gas Fire',loc:'Lounge',type:'Gas Fire',flue:'Open-flued',vent:'Air brick',op:10.0,st:11.2,safe:false}],result:'AT RISK',sent:true}
-];
+var cp12Certs=[]; // loaded from Supabase in loadEngineerData()
 var selCP12=-1;
 var certDashType=null; // null=dashboard, 'domestic','non_domestic','oil','warning','commissioning'
 var certWizardStep=0; // 0=not active, 1=recipient type, 2=search/enter, 3=address, then opens detail
@@ -10143,8 +10162,10 @@ function skipReminder(remId){
 }
 function saveCertToSupabase(cert) {
   if (!currentUser) return;
-  var applJson = '[]';
-  try { applJson = JSON.stringify(cert.appliances || []); } catch(e) {}
+  var applArr = [];
+  var certData = {};
+  try { applArr = JSON.parse(JSON.stringify(cert.appliances || [])); } catch(e) {}
+  try { certData = JSON.parse(JSON.stringify(cert)); } catch(e) {}
   sb.rpc('save_certificate', {
     p_engineer_id: currentUser.id,
     p_certificate_number: cert.id || '',
@@ -10157,12 +10178,13 @@ function saveCertToSupabase(cert) {
     p_expiry_date: cert.expiry || '',
     p_status: (cert.result === 'PASS' || cert.result === 'Pass') ? 'valid' : 'failed',
     p_inspection_result: cert.result || 'PASS',
-    p_appliances: applJson,
+    p_appliances: applArr,
     p_engineer_name: S.engineer.business || S.engineer.name || '',
-    p_gas_safe_number: S.engineer.gasSafe || ''
+    p_gas_safe_number: S.engineer.gasSafe || '',
+    p_data: certData
   }).then(function(res) {
-    if (res.error) { console.log('Save cert RPC error:', res.error.message); }
-    else { console.log('Certificate saved via RPC:', res.data); }
+    if (res.error) { console.log('Save cert RPC error:', res.error.message); toast('error','Certificate not saved to cloud — please check your connection'); }
+    else { console.log('Certificate saved via RPC:', res.data); if(res.data&&res.data.certificate_id){cert._supaId=res.data.certificate_id} }
   });
 }
 // ES5 UUID v4 generator
