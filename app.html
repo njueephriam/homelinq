@@ -10150,49 +10150,412 @@ function wizGoMap(){
   if(!wiz.files.some(function(f){return f.status==='ready'})){toast('error','None of the files could be read');return}
   wiz.step='map';render();_wizMaybeOpenChat();
 }
-function wizStartImport(){
-  var ready=wiz.files.filter(function(f){return f.status==='ready'&&!f.skipped});
+// ===== M3: review — every row checked, duplicates found, links and totals before anything is saved =====
+var WIZ_REASON={no_name:'No customer name',no_customer:'No customer',no_date:'No date',bad_date:'Date can\'t be read',no_total:'No total',
+  bad_amount:'Amount can\'t be read',no_prop:'No property address',no_desc:'No description',no_amount:'No amount',
+  zero_total:'Total is £0',negative:'Negative amount',vat_gt_total:'VAT is more than the total',future_date:'Date is in the future',
+  old_date:'Very old date',expiry_before_issue:'Expiry is before the issue date',bad_email:'Email looks wrong',bad_phone:'Phone looks wrong',
+  bad_postcode:'Postcode looks wrong',date_dropped:'A date can\'t be read — it will be left empty',bad_price:'Price can\'t be read — saved as £0',bad_vat:'VAT can\'t be read — saved as £0',dup_existing:'Already in HomeLinq',dup_file:'Appears earlier in your files'};
+var WIZ_BAD={no_name:1,no_customer:1,no_date:1,bad_date:1,no_total:1,bad_amount:1,no_prop:1,no_desc:1,no_amount:1};
+function _wizMoney(v){
+  var s=_impStr(v);if(!s)return {e:true,v:0};
+  var c=s.replace(/[£$€,\s]|gbp|inc\.?|vat/gi,'');var neg=false;
+  if(/^\(.*\)$/.test(c)){neg=true;c=c.slice(1,-1)}
+  if(!/^-?\d*\.?\d+$/.test(c))return {bad:true,v:0};
+  var n=Math.round(parseFloat(c)*100)/100;return {v:neg?-n:n};
+}
+function _wizDateChk(v,df,out,code){var s=_impStr(v);if(!s)return null;var d=_impDate(s,df);if(!d&&code)out.push(code);return d}
+function _wizNameKey(s){return _impStr(s).toLowerCase().replace(/[^a-z0-9\s]/g,' ').replace(/\b(mr|mrs|ms|miss|dr|mx)\b/g,' ').replace(/\s+/g,' ').trim()}
+function _wizEmailOk(e){return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e)}
+function _wizPhoneOk(p){var d=p.replace(/[^0-9]/g,'');return /^0\d{9,10}$/.test(d)||/^44\d{9,10}$/.test(d)}
+function _wizPcOk(p){return /^[A-Z]{1,2}[0-9][A-Z0-9]?\s*[0-9][A-Z]{2}$/.test(p)}
+// One row → the database record + problems + duplicate keys. Single source of truth for review AND import.
+function _wizRow(f,row,ix){
+  var m=f.mapping,df=f.dateFormat||null,uid=currentUser?currentUser.id:'',tag=(wiz.batchId||'000000').substring(0,6);
+  var get=function(fd){var col=m[fd];return col?row[col]:''};
+  var r=[],o={rec:null,r:r,keys:[],cname:'',date:null,amount:null};
+  var today=localDateKey(new Date()),tomorrow=localDateKey(new Date(Date.now()+86400000));
+  function contact(emailF,phoneF){
+    var e=_impStr(get(emailF));if(e&&!_wizEmailOk(e))r.push('bad_email');
+    var p=phoneF?_impPhone(get(phoneF)):'';if(p&&!_wizPhoneOk(p))r.push('bad_phone');
+    return {e:e,p:p};
+  }
+  if(f.type==='customers'){
+    var name=_impStr(get('name'));if(!name)r.push('no_name');
+    var c=contact('email','phone');var pc=_impStr(get('postcode')).toUpperCase();if(pc&&!_wizPcOk(pc))r.push('bad_postcode');
+    var comp=_impStr(get('company'));
+    o.cname=name;
+    if(c.e)o.keys.push('e:'+c.e.toLowerCase());var pk=_impPhoneKey(c.p);if(pk)o.keys.push('p:'+pk);if(name)o.keys.push('np:'+_wizNameKey(name)+'|'+pc.replace(/\s/g,'').toLowerCase());
+    o.rec={engineer_id:uid,full_name:name,email:c.e,phone:c.p,address:_impStr(get('address')),postcode:pc,is_company:!!comp&&comp.toLowerCase()===name.toLowerCase(),source:'import'};
+  }else if(f.type==='jobs'){
+    var raw=_impStr(get('date'));var d=raw?_impDate(raw,df):null;if(!raw)r.push('no_date');else if(!d)r.push('bad_date');
+    var cust=_impStr(get('customer'));if(!cust)r.push('no_customer');
+    var pr=_wizMoney(get('price'));if(pr.bad)r.push('bad_price');if(pr.v<0)r.push('negative');
+    if(d&&d<'1990-01-01')r.push('old_date');
+    var cj=contact('email','phone');var ref=_impStr(get('ref'));
+    var desc=[_impStr(get('type')),_impStr(get('description'))].filter(function(x){return x}).join(' — ')||'Imported job';
+    o.cname=cust;o.date=d;o.amount=pr.v;
+    o.keys.push(ref?'n:IMP-'+ref.toUpperCase():'k:'+d+'|'+_wizNameKey(cust)+'|'+desc.toLowerCase());
+    o.rec={engineer_id:uid,job_number:'IMP-'+(ref||tag+'-'+(ix+1)),scheduled_date:d,scheduled_time:_impStr(get('time'))||'09:00',
+      customer_name:cust,customer_email:cj.e,customer_phone:cj.p,address:_impStr(get('address')),postcode:_impStr(get('postcode')).toUpperCase(),
+      description:desc,price:pr.v,status:_impJobStatus(get('status')),source:'direct'};
+  }else if(f.type==='invoices'){
+    var ci=_impStr(get('customer'));if(!ci)r.push('no_customer');
+    var tt=_wizMoney(get('total'));if(tt.e)r.push('no_total');else if(tt.bad)r.push('bad_amount');
+    var vt=_wizMoney(get('vat'));if(vt.bad)r.push('bad_vat');
+    if(!tt.e&&!tt.bad){if(tt.v===0)r.push('zero_total');if(tt.v<0)r.push('negative');if(vt.v&&Math.abs(vt.v)>Math.abs(tt.v))r.push('vat_gt_total')}
+    var dd=[];var di=_wizDateChk(get('date'),df,dd,'date_dropped');var due=_wizDateChk(get('dueDate'),df,dd,'date_dropped');if(dd.length)r.push('date_dropped');
+    if(di&&di>tomorrow)r.push('future_date');if(di&&di<'1990-01-01')r.push('old_date');
+    contact('email',null);
+    var orig=_impStr(get('number'));var num='IMP-'+(orig?orig.replace(/^IMP-/i,''):tag+'-'+(ix+1));var st=_impInvStatus(get('status'));
+    o.cname=ci;o.date=di;o.amount=tt.v;o.paid=st==='paid';
+    o.keys.push(orig?'n:'+num.toUpperCase():'k:'+_wizNameKey(ci)+'|'+di+'|'+tt.v);
+    o.rec={engineer_id:uid,invoice_number:num,customer_name:ci,customer_email:_impStr(get('email')),
+      description:_impStr(get('items'))||'Imported invoice',amount:Math.round((tt.v-vt.v)*100)/100,vat:vt.v,total:tt.v,status:st,
+      sent_date:di?di+'T12:00:00Z':null,due_date:due,paid_date:st==='paid'?(di?di+'T12:00:00Z':new Date().toISOString()):null,
+      chase_count:0,meta:{imported:true,originalNumber:orig}};
+  }else if(f.type==='certificates'){
+    var prop=_impStr(get('prop'));if(!prop)r.push('no_prop');
+    var dc=[];var issue=_wizDateChk(get('date'),df,dc,'x');var exp=_wizDateChk(get('expiry'),df,dc,'x');if(dc.length)r.push('date_dropped');
+    if(issue&&exp&&exp<issue)r.push('expiry_before_issue');if(issue&&issue>tomorrow)r.push('future_date');
+    var re=_impStr(get('recipientEmail'));if(re&&!_wizEmailOk(re))r.push('bad_email');
+    var soon=localDateKey(new Date(Date.now()+60*86400000));
+    var status=!exp?'valid':(exp<today?'expired':(exp<soon?'expiring_soon':'valid'));
+    var oc=_impStr(get('certNumber'));var cn='IMP-'+(oc||tag+'-'+(ix+1));
+    var recip=_impStr(get('recipientName'))||_impStr(get('landlord'))||_impStr(get('tenant'));
+    var res=_impStr(get('result')).toUpperCase()||'PASS';
+    o.cname=recip;o.date=issue;
+    o.keys.push(oc?'n:'+cn.toUpperCase():'k:'+prop.toLowerCase().replace(/\s+/g,' ')+'|'+issue);
+    o.rec={engineer_id:uid,certificate_number:cn,cert_type:_impCertType(get('certType')),property_address:prop,landlord_name:_impStr(get('landlord')),tenant_name:_impStr(get('tenant')),landlord_email:re||null,
+      issue_date:issue,expiry_date:exp,status:status,inspection_result:res,appliances:[],engineer_name:_impStr(get('engineerName')),gas_safe_number:_impStr(get('gasSafe')),
+      data:{importedRecord:true,originalNumber:oc,originalEngineer:_impStr(get('engineerName')),originalGasSafe:_impStr(get('gasSafe')),
+        recipientName:recip,recipientEmail:re,recipientType:_impStr(get('recipientType'))||'landlord',prop:prop,date:issue||'',expiry:exp||'',result:res,sent:false}};
+  }else if(f.type==='expenses'){
+    var am=_wizMoney(get('amount'));if(am.e)r.push('no_amount');else if(am.bad)r.push('bad_amount');else if(am.v<0)r.push('negative');
+    var ds=_impStr(get('description'));if(!ds)r.push('no_desc');
+    var de=[];var dx=_wizDateChk(get('date'),df,de,'x');if(de.length)r.push('date_dropped');if(dx&&dx>tomorrow)r.push('future_date');
+    var vendor=_impStr(get('vendor'));var cat=_impStr(get('category'));var fullDesc=ds+(vendor?' ('+vendor+')':'');
+    o.date=dx;o.amount=am.v;
+    o.keys.push('k:'+(dx||'')+'|'+am.v+'|'+fullDesc.toLowerCase());
+    o.rec={engineer_id:uid,date:dx||today,description:fullDesc,amount:am.v,category:(cat||'other').toLowerCase(),category_label:cat||'Other',has_receipt:false};
+  }
+  o.bad=r.some(function(x){return WIZ_BAD[x]});
+  return o;
+}
+// Existing records, read 1,000 at a time so duplicates are checked against everything already in HomeLinq
+function _wizFetchAll(table,cols,cb){
+  var out=[],from=0;
+  (function next(){
+    sb.from(table).select(cols).eq('engineer_id',currentUser.id).order('id').range(from,from+999).then(function(res){
+      if(res.error){cb(res.error,out);return}
+      var d=res.data||[];out=out.concat(d);
+      if(d.length<1000){cb(null,out);return}
+      from+=1000;next();
+    });
+  })();
+}
+function _wizLoadExisting(cb){
+  var ex={keys:{customers:{},jobs:{},invoices:{},certificates:{},expenses:{}},cust:{},names:{}};
+  var jobs=[['engineer_customers','id,full_name,email,phone,address,postcode',function(rows){rows.forEach(function(c){
+      ex.cust[c.id]=c;var e=_impStr(c.email).toLowerCase();if(e)ex.keys.customers['e:'+e]=c.id;var pk=_impPhoneKey(c.phone);if(pk)ex.keys.customers['p:'+pk]=c.id;
+      var nk=_wizNameKey(c.full_name);if(nk){ex.keys.customers['np:'+nk+'|'+_impStr(c.postcode).replace(/\s/g,'').toLowerCase()]=c.id;ex.names[nk]=c.full_name}})}],
+    ['jobs','id,job_number,scheduled_date,customer_name,description',function(rows){rows.forEach(function(j){if(j.job_number)ex.keys.jobs['n:'+String(j.job_number).toUpperCase()]=1;
+      ex.keys.jobs['k:'+j.scheduled_date+'|'+_wizNameKey(j.customer_name)+'|'+_impStr(j.description).toLowerCase()]=1})}],
+    ['invoices','id,invoice_number,customer_name,total,sent_date',function(rows){rows.forEach(function(i){if(i.invoice_number)ex.keys.invoices['n:'+String(i.invoice_number).toUpperCase()]=1;
+      ex.keys.invoices['k:'+_wizNameKey(i.customer_name)+'|'+(i.sent_date?String(i.sent_date).substring(0,10):null)+'|'+(Number(i.total)||0)]=1})}],
+    ['cp12_certificates','id,certificate_number,property_address,issue_date',function(rows){rows.forEach(function(c){if(c.certificate_number)ex.keys.certificates['n:'+String(c.certificate_number).toUpperCase()]=1;
+      ex.keys.certificates['k:'+_impStr(c.property_address).toLowerCase().replace(/\s+/g,' ')+'|'+(c.issue_date||null)]=1})}],
+    ['general_expenses','id,date,description,amount',function(rows){rows.forEach(function(e){ex.keys.expenses['k:'+e.date+'|'+(Number(e.amount)||0)+'|'+_impStr(e.description).toLowerCase()]=1})}]];
+  var i=0;
+  (function next(){
+    if(i>=jobs.length){cb(null,ex);return}
+    var j=jobs[i++];
+    _wizFetchAll(j[0],j[1],function(err,rows){if(err){cb(err);return}j[2](rows);next()});
+  })();
+}
+// Check every file in import order with one shared context (so customers files feed the linking of later files)
+function _wizValidateAll(){
+  var ex=wiz.existing;if(!ex)return;
+  var seen={customers:{},jobs:{},invoices:{},certificates:{},expenses:{}};var known={};
+  Object.keys(ex.names).forEach(function(k){known[k]=ex.names[k]});
+  var files=wiz.files.filter(function(f){return f.status==='ready'&&!f.skipped});
+  files.sort(function(a,b){return WIZ_ORDER.indexOf(a.type)-WIZ_ORDER.indexOf(b.type)});
+  files.forEach(function(f){
+    var exk=ex.keys[f.type],sk=seen[f.type],rv=[];
+    for(var ix=0;ix<f.rows.length;ix++){
+      var o=_wizRow(f,f.rows[ix],ix);var v={r:o.r,cname:o.cname,amt:o.amount,dt:o.date,paid:!!o.paid};
+      if(o.bad){v.s='bad'}
+      else{
+        for(var k=0;k<o.keys.length;k++){var key=o.keys[k];
+          if(exk[key]!==undefined){v.s='dup';v.dupOf='existing';if(f.type==='customers')v.dupId=exk[key];break}
+          if(sk[key]){v.s='dup';v.dupOf='file';break}}
+        if(v.s==='dup')v.r=o.r.concat([v.dupOf==='existing'?'dup_existing':'dup_file']);
+        else{v.s=o.r.length?'warn':'ok';o.keys.forEach(function(key){sk[key]=1})}
+        if(f.type==='customers'&&o.cname){var nk=_wizNameKey(o.cname);if(nk&&!known[nk])known[nk]=o.cname}
+      }
+      rv.push(v);
+    }
+    f.rv=rv;
+  });
+  files.forEach(function(f){_wizRecount(f,known)});
+}
+function _wizIncluded(f,ix){
+  var v=f.rv[ix];if(!v||v.s==='bad')return false;
+  if(f.rowSel&&f.rowSel[ix]!==undefined)return f.rowSel[ix];
+  if(v.s==='dup'){var mode=f.dupMode||'skip';return mode==='import'||(mode==='fill'&&v.dupOf==='existing'&&f.type==='customers')}
+  return true;
+}
+function _wizIsFill(f,ix){var v=f.rv[ix];return v&&v.s==='dup'&&v.dupOf==='existing'&&f.type==='customers'&&(f.dupMode||'skip')==='fill'&&_wizIncluded(f,ix)}
+function _wizRecount(f,known){
+  var c={ok:0,warn:0,bad:0,dup:0,excluded:0,included:0,fill:0},reasons={},tot={sum:0,paid:0,unpaid:0,from:null,to:null};
+  var unmatched={},matched=0,linkable=f.type==='jobs'||f.type==='invoices'||f.type==='certificates';
+  if(known)f._known=known;known=f._known||{};
+  for(var ix=0;ix<f.rv.length;ix++){
+    var v=f.rv[ix];c[v.s]++;v.r.forEach(function(x){reasons[x]=(reasons[x]||0)+1});
+    var inc=_wizIncluded(f,ix);
+    if(!inc){if(v.s!=='bad'&&(v.s!=='dup'||(f.rowSel&&f.rowSel[ix]===false)))c.excluded++;continue}
+    if(_wizIsFill(f,ix)){c.fill++;continue}
+    c.included++;
+    if(v.amt){tot.sum+=v.amt;if(f.type==='invoices'){if(v.paid)tot.paid+=v.amt;else tot.unpaid+=v.amt}}
+    if(v.dt){if(!tot.from||v.dt<tot.from)tot.from=v.dt;if(!tot.to||v.dt>tot.to)tot.to=v.dt}
+    if(linkable&&v.cname){var nk=_wizNameKey(v.cname);if(known[nk])matched++;else{if(!unmatched[nk])unmatched[nk]={name:v.cname,n:0};unmatched[nk].n++}}
+  }
+  ['sum','paid','unpaid'].forEach(function(k){tot[k]=Math.round(tot[k]*100)/100});
+  f.rvStat={c:c,reasons:reasons,tot:tot,matched:matched,unmatched:unmatched,near:linkable?_wizNear(unmatched,known):[]};
+}
+// "J Smith" vs "John Smith": same surname, compatible first name
+function _wizNear(unmatched,known){
+  var bySur={};Object.keys(known).forEach(function(k){var t=k.split(' ');if(t.length<2)return;var s=t[t.length-1];(bySur[s]=bySur[s]||[]).push(k)});
+  var out=[];
+  Object.keys(unmatched).forEach(function(u){
+    var t=u.split(' ');if(t.length<2)return;var cands=bySur[t[t.length-1]]||[];
+    for(var i=0;i<cands.length;i++){var a=t[0],b=cands[i].split(' ')[0];
+      if(a.charAt(0)===b.charAt(0)&&(a.length===1||b.length===1||a.indexOf(b)===0||b.indexOf(a)===0)){out.push({key:u,name:unmatched[u].name,n:unmatched[u].n,to:known[cands[i]]});break}}
+  });
+  out.sort(function(x,y){return y.n-x.n});
+  return out.slice(0,50);
+}
+function _wizReviewSummary(){
+  return wiz.files.filter(function(f){return f.status==='ready'&&!f.skipped&&f.rvStat}).map(function(f){
+    var s=f.rvStat,c=s.c;
+    var top=Object.keys(s.reasons).sort(function(a,b){return s.reasons[b]-s.reasons[a]}).slice(0,6).map(function(k){return (WIZ_REASON[k]||k)+' '+s.reasons[k]}).join(', ');
+    return '"'+f.name+'": '+c.included+' to import, '+c.warn+' with warnings, '+c.bad+' can\'t import, '+c.dup+' duplicates'+(top?' ('+top+')':'')+
+      (Object.keys(s.unmatched).length?', '+Object.keys(s.unmatched).length+' customer names not in the customers list':'')+(s.near.length?', '+s.near.length+' look like near-matches':'');
+  }).join(' · ');
+}
+function _wizGBP(n){return '£'+(Number(n)||0).toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2})}
+function _wizUK(d){if(!d)return '';var p=String(d).substring(0,10).split('-');return p.length===3?p[2]+'/'+p[1]+'/'+p[0]:d}
+function _wizReadyFiles(){var r=wiz.files.filter(function(f){return f.status==='ready'&&!f.skipped});r.sort(function(a,b){return WIZ_ORDER.indexOf(a.type)-WIZ_ORDER.indexOf(b.type)});return r}
+function wizGoReview(){
+  var ready=_wizReadyFiles();
   if(!ready.length){toast('warning','Every file is skipped — include at least one');return}
   if(wiz.chat&&wiz.chat.busy){toast('warning','Moti is replying — one moment');return}
   for(var i=0;i<ready.length;i++){var miss=_wizMissing(ready[i]);if(miss.length){toast('error',ready[i].name+': choose a column for "'+miss[0]+'"');return}
     if(ready[i].ai&&ready[i].ai.status==='loading'){toast('warning','Moti is still checking '+ready[i].name+' — one moment');return}}
   if(!currentUser||!sb){toast('error','Please sign in first');return}
-  ready.sort(function(a,b){return WIZ_ORDER.indexOf(a.type)-WIZ_ORDER.indexOf(b.type)});
-  wiz.batchId=genUUID();wiz.step='importing';wiz.results=[];wiz.progress={file:'',done:0,total:0};
+  if(!wiz.batchId)wiz.batchId=genUUID();
+  wiz.step='review';wiz.reviewLoading=true;wiz.reviewError='';wiz.edit=null;render();
+  _wizLoadExisting(function(err,ex){
+    wiz.reviewLoading=false;
+    if(err){console.log('Review load error:',err);wiz.reviewError='Could not check your existing records ('+(err.message||'connection problem')+').';render();return}
+    wiz.existing=ex;
+    try{_wizValidateAll()}catch(e){console.log('Validate error:',e);wiz.reviewError='Something went wrong while checking your files.';render();return}
+    var opened=false;
+    ready.forEach(function(f){f.rvPage=0;f.rvFilter=f.rvFilter||'problems';var c=f.rvStat.c;f.rvOpen=!opened&&(c.bad+c.warn+c.dup)>0;if(f.rvOpen)opened=true});
+    _wizChatInit();
+    var problems=ready.some(function(f){var c=f.rvStat.c;return c.bad>0||f.rvStat.near.length>0});
+    if(wiz.chat.started){wiz.chat.messages.push({role:'event',text:'Review results — '+_wizReviewSummary()});render();if(problems)wizMotiSend(null);else _wizScrollChat()}
+    else render();
+  });
+}
+function _wizRevalidate(){if(wiz.step==='review'&&wiz.existing){_wizValidateAll()}}
+function wizToggleRow(fid,ix){var f=_wizFile(fid);if(!f||!f.rv)return;if(!f.rowSel)f.rowSel={};f.rowSel[ix]=!_wizIncluded(f,ix);_wizRecount(f);render()}
+function wizSetDup(fid,mode){var f=_wizFile(fid);if(!f)return;f.dupMode=mode;if(f.rowSel){f.rv.forEach(function(v,ix){if(v.s==='dup')delete f.rowSel[ix]})}_wizRecount(f);
+  _wizChatInit();wiz.chat.messages.push({role:'event',text:'"'+f.name+'": duplicates set to '+({skip:'skip',fill:'fill in missing details',import:'import anyway'}[mode])});render()}
+function wizRvFilter(fid,val){var f=_wizFile(fid);if(!f)return;f.rvFilter=val;f.rvPage=0;render()}
+function wizRvPage(fid,d){var f=_wizFile(fid);if(!f)return;f.rvPage=Math.max(0,(f.rvPage||0)+d);render()}
+function wizRvOpen(fid){var f=_wizFile(fid);if(!f)return;f.rvOpen=!f.rvOpen;render()}
+function wizEditRow(fid,ix){wiz.edit={fid:fid,ix:ix};render()}
+function wizCancelEdit(){wiz.edit=null;render()}
+function wizSaveEdit(fid,ix){
+  var f=_wizFile(fid);if(!f)return;var row=f.rows[ix];if(!row)return;
+  IMPORT_TYPES[f.type].fields.forEach(function(fd){
+    var el=document.getElementById('wized-'+fd);if(!el)return;var val=String(el.value||'').trim();
+    var col=f.mapping[fd];
+    if(!col){if(!val)return;col='Edited '+fd;if(f.headers.indexOf(col)===-1)f.headers.push(col);f.mapping[fd]=col}
+    row[col]=val;
+  });
+  if(f.rowSel)delete f.rowSel[ix];
+  wiz.edit=null;_wizValidateAll();
+  var v=f.rv[ix];toast(v.s==='bad'?'warning':'success',v.s==='bad'?'Saved — this row still can\'t be imported: '+v.r.filter(function(x){return WIZ_BAD[x]}).map(function(x){return WIZ_REASON[x]}).join(', '):'Row updated');
+  render();
+}
+function _wizNameCols(f){return ['customer','recipientName','landlord','tenant'].map(function(k){return f.mapping[k]}).filter(function(c){return c})}
+function _wizUseNames(f,list){
+  var map={};list.forEach(function(n){map[n.key]=n.to});var cols=_wizNameCols(f),changed=0;
+  f.rows.forEach(function(r){cols.forEach(function(c){var k=_wizNameKey(r[c]);if(k&&map[k]!==undefined){r[c]=map[k];changed++}})});
+  return changed;
+}
+function wizUseName(fid,i){
+  var f=_wizFile(fid);if(!f||!f.rvStat)return;var n=f.rvStat.near[i];if(!n)return;
+  var ch=_wizUseNames(f,[n]);_wizValidateAll();
+  _wizChatInit();wiz.chat.messages.push({role:'event',text:'"'+f.name+'": matched '+ch+' row(s) to an existing customer'});
+  toast('success',ch+' row(s) now use "'+n.to+'"');render();
+}
+function wizUseAllNames(fid){
+  var f=_wizFile(fid);if(!f||!f.rvStat)return;var ch=_wizUseNames(f,f.rvStat.near);_wizValidateAll();
+  _wizChatInit();wiz.chat.messages.push({role:'event',text:'"'+f.name+'": matched '+ch+' row(s) to existing customers (all suggestions)'});
+  toast('success',ch+' row(s) matched to existing customers');render();
+}
+var WIZ_SHOW={customers:[['name','Name'],['email','Email'],['phone','Phone'],['postcode','Postcode']],jobs:[['date','Date'],['customer','Customer'],['description','Job'],['price','Price']],
+  invoices:[['number','Invoice'],['customer','Customer'],['date','Date'],['total','Total'],['status','Status']],certificates:[['certNumber','Cert no'],['prop','Property'],['date','Issued'],['expiry','Expiry']],
+  expenses:[['date','Date'],['description','Description'],['amount','Amount']]};
+function _wizRvMatch(f,ix,flt){
+  var v=f.rv[ix];
+  if(flt==='all')return true;
+  if(flt==='problems')return v.s!=='ok';
+  if(flt==='excluded')return v.s!=='bad'&&!_wizIncluded(f,ix);
+  return v.s===flt;
+}
+function _wizRvTable(f){
+  var flt=f.rvFilter||'problems',idx=[];
+  for(var ix=0;ix<f.rv.length;ix++)if(_wizRvMatch(f,ix,flt))idx.push(ix);
+  var pages=Math.max(1,Math.ceil(idx.length/100));if((f.rvPage||0)>=pages)f.rvPage=pages-1;var pg=f.rvPage||0;
+  var cols=WIZ_SHOW[f.type];
+  var h='<div class="flex gap-8" style="align-items:center;margin:10px 0 6px;flex-wrap:wrap"><span class="text-sm text-muted">Show:</span><select class="select" style="padding:4px 8px;font-size:12px" onchange="wizRvFilter('+f.id+',this.value)">'+
+    [['problems','Problems only'],['all','All rows'],['bad','Can\'t import'],['warn','Warnings'],['dup','Duplicates'],['excluded','Left out by you']].map(function(o){return '<option value="'+o[0]+'"'+(flt===o[0]?' selected':'')+'>'+o[1]+'</option>'}).join('')+'</select>'+
+    '<span style="flex:1"></span><span class="text-sm text-muted">'+idx.length.toLocaleString()+' rows · page '+(pg+1)+' of '+pages+'</span>'+
+    '<button class="btn btn-secondary btn-sm" '+(pg<=0?'disabled':'')+' onclick="wizRvPage('+f.id+',-1)">‹</button><button class="btn btn-secondary btn-sm" '+(pg>=pages-1?'disabled':'')+' onclick="wizRvPage('+f.id+',1)">›</button></div>';
+  if(!idx.length)return h+'<div class="text-sm text-muted" style="padding:10px 0">Nothing to show here 👍</div>';
+  h+='<div class="table-wrap"><table style="width:100%;font-size:12px"><thead><tr><th></th><th>Row</th>'+cols.map(function(c){return '<th>'+c[1]+'</th>'}).join('')+'<th>Check</th><th></th></tr></thead><tbody>';
+  idx.slice(pg*100,pg*100+100).forEach(function(ix){
+    var v=f.rv[ix],row=f.rows[ix],inc=_wizIncluded(f,ix),fill=_wizIsFill(f,ix);
+    var icon=v.s==='bad'?'❌':v.s==='dup'?'🔁':v.s==='warn'?'⚠️':'✅';
+    var bg=v.s==='bad'?'var(--danger-light)':v.s==='dup'?'var(--blue-light)':v.s==='warn'?'var(--warning-light)':'transparent';
+    h+='<tr style="background:'+bg+(inc?'':';opacity:.65')+'"><td><input type="checkbox" '+(inc?'checked':'')+(v.s==='bad'?' disabled title="Fix this row to include it"':'')+' onclick="wizToggleRow('+f.id+','+ix+')"></td><td>'+(ix+2)+'</td>'+
+      cols.map(function(c){var col=f.mapping[c[0]];var val=col?_impStr(row[col]):'';return '<td style="max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+escAttr(val)+'">'+(val?esc(val.substring(0,40)):'<span class="text-muted">—</span>')+'</td>'}).join('')+
+      '<td>'+icon+' '+esc(v.r.map(function(x){return WIZ_REASON[x]||x}).join(' · '))+(fill?' <span style="color:var(--primary-dark)">→ will fill in missing details</span>':'')+'</td>'+
+      '<td><button class="btn btn-secondary btn-sm" title="Edit this row" onclick="wizEditRow('+f.id+','+ix+')">✎</button></td></tr>';
+    if(wiz.edit&&wiz.edit.fid===f.id&&wiz.edit.ix===ix){
+      h+='<tr><td colspan="'+(cols.length+4)+'" style="background:var(--bg);padding:10px"><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px">'+
+        IMPORT_TYPES[f.type].fields.map(function(fd){var col=f.mapping[fd];var req=IMPORT_TYPES[f.type].required.indexOf(fd)!==-1;
+          return '<label style="font-size:11px;font-weight:700">'+fd+(req?' <span style="color:var(--danger)">*</span>':'')+(col?' <span class="text-muted" style="font-weight:400">('+esc(col)+')</span>':'')+
+            '<input class="input" id="wized-'+fd+'" style="width:100%;font-size:12px;padding:6px 8px;margin-top:2px" value="'+escAttr(col?_impStr(row[col]):'')+'"></label>'}).join('')+
+        '</div><div class="flex gap-8 mt-8"><button class="btn btn-primary btn-sm" onclick="wizSaveEdit('+f.id+','+ix+')">Save row</button><button class="btn btn-secondary btn-sm" onclick="wizCancelEdit()">Cancel</button></div></td></tr>';
+    }
+  });
+  return h+'</tbody></table></div>';
+}
+function _wizRvCard(f){
+  var s=f.rvStat,c=s.c,t=s.tot,T=IMPORT_TYPES[f.type];
+  var chip=function(bg,txt){return '<span style="display:inline-block;padding:3px 9px;border-radius:12px;font-size:12px;font-weight:700;background:'+bg+';margin:0 4px 4px 0">'+txt+'</span>'};
+  var h='<div style="border:1px solid '+(c.bad?'var(--danger)':'var(--border)')+';border-radius:12px;padding:14px;margin-bottom:12px">';
+  h+='<div class="flex-between" style="gap:8px;flex-wrap:wrap"><div class="fw-800">'+T.icon+' '+esc(f.name)+' <span class="text-sm text-muted">· '+T.label+' · '+f.rows.length.toLocaleString()+' rows</span></div>'+
+    '<button class="btn btn-secondary btn-sm" onclick="wizRvOpen('+f.id+')">'+(f.rvOpen?'Hide rows ▴':'Show rows ▾')+'</button></div>';
+  h+='<div style="margin-top:8px">'+chip('var(--success-light)','✅ '+c.ok.toLocaleString()+' ready')+(c.warn?chip('var(--warning-light)','⚠️ '+c.warn.toLocaleString()+' warnings'):'')+
+    (c.bad?chip('var(--danger-light)','❌ '+c.bad.toLocaleString()+' can\'t import'):'')+(c.dup?chip('var(--blue-light)','🔁 '+c.dup.toLocaleString()+' duplicates'):'')+(c.excluded?chip('var(--bg)','⏸ '+c.excluded.toLocaleString()+' left out by you'):'')+'</div>';
+  var top=Object.keys(s.reasons).filter(function(k){return k!=='dup_existing'&&k!=='dup_file'}).sort(function(a,b){return s.reasons[b]-s.reasons[a]}).slice(0,5);
+  if(top.length)h+='<div class="text-sm text-muted">'+top.map(function(k){return esc(WIZ_REASON[k]||k)+': '+s.reasons[k].toLocaleString()}).join(' · ')+'</div>';
+  var range=t.from?' · '+_wizUK(t.from)+' → '+_wizUK(t.to):'';
+  var line=f.type==='invoices'?c.included.toLocaleString()+' invoices · '+_wizGBP(t.sum)+' in total · paid '+_wizGBP(t.paid)+' · unpaid '+_wizGBP(t.unpaid)+range:
+    f.type==='jobs'?c.included.toLocaleString()+' jobs · '+_wizGBP(t.sum)+range:
+    f.type==='expenses'?c.included.toLocaleString()+' expenses · '+_wizGBP(t.sum)+range:
+    f.type==='certificates'?c.included.toLocaleString()+' certificates'+(t.from?' · issued '+_wizUK(t.from)+' → '+_wizUK(t.to):''):
+    c.included.toLocaleString()+' new customers'+(c.fill?' · '+c.fill.toLocaleString()+' existing customers will get missing details filled in':'');
+  h+='<div style="margin-top:10px;padding:10px 12px;background:var(--bg);border-radius:8px"><div class="fw-700 text-sm">📊 Will import: '+line+'</div>'+
+    (f.type!=='customers'?'<div class="text-sm text-muted" style="margin-top:2px">Does this match your old system? If not, ask Moti above or go back and check the columns.</div>':'')+'</div>';
+  if(c.dup){
+    var mode=f.dupMode||'skip';
+    var opts=[['skip','Skip them']];if(f.type==='customers')opts.push(['fill','Fill in missing details']);opts.push(['import','Import anyway']);
+    h+='<div class="flex gap-8" style="align-items:center;margin-top:10px;flex-wrap:wrap"><span class="text-sm fw-700">🔁 '+c.dup.toLocaleString()+' duplicates:</span>'+
+      opts.map(function(o){return '<button class="btn '+(mode===o[0]?'btn-primary':'btn-secondary')+' btn-sm" onclick="wizSetDup('+f.id+',\''+o[0]+'\')">'+o[1]+'</button>'}).join('')+'</div>';
+    if(f.type==='customers'&&mode==='fill')h+='<div class="text-sm text-muted" style="margin-top:4px">Only empty details (email, phone, address, postcode) are added. Nothing you already have is overwritten.</div>';
+  }
+  if(f.type==='jobs'||f.type==='invoices'||f.type==='certificates'){
+    var un=Object.keys(s.unmatched),unRows=0;un.forEach(function(k){unRows+=s.unmatched[k].n});
+    h+='<div style="margin-top:10px;font-size:13px">🔗 '+s.matched.toLocaleString()+' rows match one of your customers'+
+      (un.length?' · <strong>'+unRows.toLocaleString()+'</strong> rows name '+un.length.toLocaleString()+' customer(s) who aren\'t in your list yet — a new customer record will be created for each.':'.')+'</div>';
+    if(s.near.length){
+      h+='<div style="margin-top:6px;padding:8px 10px;border:1px dashed var(--warning);border-radius:8px"><div class="text-sm fw-700">These look like customers you already have:</div>';
+      s.near.slice(0,8).forEach(function(n,i){h+='<div class="flex gap-8" style="align-items:center;margin-top:4px;font-size:12px"><span style="flex:1">"'+esc(n.name)+'" ('+n.n+' rows) → "'+esc(n.to)+'"</span><button class="btn btn-secondary btn-sm" onclick="wizUseName('+f.id+','+i+')">Use "'+esc(n.to)+'"</button></div>'});
+      if(s.near.length>1)h+='<button class="btn btn-secondary btn-sm" style="margin-top:6px" onclick="wizUseAllNames('+f.id+')">Use all '+s.near.length+' suggestions</button>';
+      h+='</div>';
+    }
+  }
+  if(f.rvOpen)h+=_wizRvTable(f);
+  return h+'</div>';
+}
+function _wizRenderReview(){
+  var h='<p class="text-sm text-muted mb-12">Every row has been checked against your existing records. Nothing is saved until you press Import.</p>';
+  if(wiz.reviewLoading)return h+'<div style="text-align:center;padding:30px 0"><div style="font-size:36px">🔎</div><div class="fw-700 mt-8">Checking against your existing records…</div></div>';
+  if(wiz.reviewError)return h+'<div style="padding:14px;background:var(--danger-light);border-radius:10px" class="text-sm">'+esc(wiz.reviewError)+'</div><div class="flex gap-8 mt-16"><button class="btn btn-primary" onclick="wizGoReview()">Try again</button><button class="btn btn-secondary" onclick="wiz.step=\'map\';render()">← Back</button></div>';
+  h+=_wizChatPanel();
+  var files=_wizReadyFiles().filter(function(f){return f.rvStat}),inc=0,fill=0;
+  files.forEach(function(f){h+=_wizRvCard(f);inc+=f.rvStat.c.included;fill+=f.rvStat.c.fill});
+  wiz.files.filter(function(f){return f.status==='ready'&&f.skipped}).forEach(function(f){h+='<div class="text-sm text-muted" style="margin-bottom:6px">⏭️ '+esc(f.name)+' — skipped</div>'});
+  h+='<div class="text-sm text-muted mb-8">Imported in this order: customers → jobs → invoices → certificates → expenses. Imported invoices are never emailed or chased.</div>';
+  h+='<div class="flex gap-8 mt-8" style="flex-wrap:wrap"><button class="btn btn-primary" '+(inc+fill?'':'disabled')+' onclick="wizStartImport()">✅ Import '+inc.toLocaleString()+' records'+(fill?' + update '+fill.toLocaleString()+' customers':'')+'</button>'+
+    '<button class="btn btn-secondary" onclick="wiz.step=\'map\';wiz.edit=null;render()">← Back to Check</button></div>';
+  return h;
+}
+function _wizFillPatch(ex,rec){
+  var p={};['email','phone','address','postcode'].forEach(function(k){if(rec[k]&&!_impStr(ex[k]))p[k]=rec[k]});return p;
+}
+function wizStartImport(){
+  if(wiz.step!=='review'||!wiz.existing){wizGoReview();return}
+  if(wiz.chat&&wiz.chat.busy){toast('warning','Moti is replying — one moment');return}
+  var ready=_wizReadyFiles().filter(function(f){return f.rv});
+  var total=0;ready.forEach(function(f){total+=f.rvStat.c.included+f.rvStat.c.fill});
+  if(!total){toast('warning','Nothing to import — every row is left out');return}
+  wiz.step='importing';wiz.results=[];wiz.progress={file:'',done:0,total:0};wiz.edit=null;
   render();
   var filesMeta=ready.map(function(f){return {name:f.name,type:f.type,rows:f.rows.length}});
   sb.from('import_batches').insert({id:wiz.batchId,engineer_id:currentUser.id,status:'importing',source_software:wiz.software||'unknown',files:filesMeta}).then(function(res){
     if(res.error)console.log('import_batches insert error:',res.error.message);
-    var ctx=_impNewCtx();var idx=0;
+    var idx=0;
     function nextFile(){
       if(idx>=ready.length){_wizFinish();return}
-      var f=ready[idx++];
-      var b=_impBuild(f.type,f.mapping,f.rows,wiz.batchId,ctx,{dateFormat:f.dateFormat||null});
-      f._result=null;
-      var r={name:f.name,type:f.type,rows:f.rows.length,imported:0,skipped:b.skipped,invalid:b.invalid,failed:0,error:''};f._result=r;
-      wiz.results.push(r);
-      if(!b.records.length){nextFile();return}
-      wiz.progress={file:f.name,done:0,total:b.records.length};
-      var chunks=_impChunks(b.records,200);var ci=0;
+      var f=ready[idx++];var records=[],fills=[];
+      var r={name:f.name,type:f.type,rows:f.rows.length,imported:0,updated:0,skipped:0,invalid:0,excluded:0,failed:0,error:''};f._result=r;wiz.results.push(r);
+      for(var ix=0;ix<f.rv.length;ix++){
+        var v=f.rv[ix];
+        if(v.s==='bad'){r.invalid++;continue}
+        if(!_wizIncluded(f,ix)){if(v.s==='dup')r.skipped++;else r.excluded++;continue}
+        var rec=_wizRow(f,f.rows[ix],ix).rec;
+        if(_wizIsFill(f,ix)){fills.push({id:v.dupId,rec:rec});continue}
+        rec.import_batch_id=wiz.batchId;records.push(rec);
+      }
+      wiz.progress={file:f.name,done:0,total:records.length+fills.length};
+      var chunks=_impChunks(records,200);var ci=0;
+      function tick(n){wiz.progress.done+=n;var el=document.getElementById('wiz-prog');if(el)el.textContent=f.name+': '+wiz.progress.done.toLocaleString()+' / '+wiz.progress.total.toLocaleString();
+        var bar=document.getElementById('wiz-bar');if(bar)bar.style.width=Math.round(wiz.progress.done*100/Math.max(1,wiz.progress.total))+'%'}
       function nextChunk(){
-        if(ci>=chunks.length){nextFile();return}
+        if(ci>=chunks.length){nextFill();return}
         var ch=chunks[ci++];var tries=0;
         (function attempt(){
           sb.from(IMPORT_TABLES[f.type]).insert(ch).then(function(res2){
             if(res2.error&&tries<2){tries++;setTimeout(attempt,1500*tries);return}
             if(res2.error){r.failed+=ch.length;r.error=res2.error.message;console.log('Import error:',res2.error.message)}else{r.imported+=ch.length}
-            wiz.progress.done+=ch.length;
-            var el=document.getElementById('wiz-prog');if(el)el.textContent=f.name+': '+wiz.progress.done.toLocaleString()+' / '+wiz.progress.total.toLocaleString();
-            var bar=document.getElementById('wiz-bar');if(bar)bar.style.width=Math.round(wiz.progress.done*100/wiz.progress.total)+'%';
-            nextChunk();
+            tick(ch.length);nextChunk();
           });
         })();
+      }
+      var fi=0;
+      function nextFill(){
+        if(fi>=fills.length){nextFile();return}
+        var it=fills[fi++];var cur=wiz.existing.cust[it.id]||{};var patch=_wizFillPatch(cur,it.rec);
+        if(!Object.keys(patch).length){r.skipped++;tick(1);nextFill();return}
+        sb.from('engineer_customers').update(patch).eq('id',it.id).then(function(res3){
+          if(res3.error){r.failed++;r.error=res3.error.message}else{r.updated++;for(var k in patch)cur[k]=patch[k]}
+          tick(1);nextFill();
+        });
       }
       nextChunk();
     }
     nextFile();
   });
 }
+
 function _wizFinish(){
   var counts={};wiz.results.forEach(function(r){counts[r.type]=(counts[r.type]||0)+r.imported});
   var anyFail=wiz.results.some(function(r){return r.failed>0});
@@ -10447,6 +10810,7 @@ function wizApplyAction(mi,ai){
   var m=wiz.chat&&wiz.chat.messages[mi];if(!m||!m.actions)return;var a=m.actions[ai];if(!a||a.state!=='new')return;
   var ok=false;try{ok=_wizApply(a)}catch(e){console.log('Apply error:',e)}
   a.state=ok?'applied':'failed';
+  if(ok)_wizRevalidate();
   wiz.chat.messages.push({role:'event',text:(ok?'Applied: ':'Could not apply: ')+_wizActionLabel(a)});
   render();_wizScrollChat();
 }
@@ -10491,7 +10855,7 @@ function _wizChatPanel(){
 }
 
 function _wizSteps(cur){
-  var steps=[['software','Where from'],['upload','Upload'],['map','Check'],['importing','Import'],['done','Done']];
+  var steps=[['software','Where from'],['upload','Upload'],['map','Check'],['review','Review'],['importing','Import'],['done','Done']];
   var ci=0;steps.forEach(function(s,i){if(s[0]===cur)ci=i});
   return '<div style="display:flex;gap:4px;margin-bottom:16px">'+steps.map(function(s,i){
     return '<div style="flex:1;text-align:center"><div style="height:4px;border-radius:2px;background:'+(i<=ci?'var(--primary)':'var(--border)')+'"></div><div style="font-size:10px;margin-top:4px;color:'+(i===ci?'var(--primary-dark)':'var(--muted)')+';font-weight:'+(i===ci?'700':'500')+'">'+s[1]+'</div></div>';
@@ -10500,7 +10864,7 @@ function _wizSteps(cur){
 function renderWizard(){
   if(!wiz.open)return '';
   var close='<button style="background:none;border:none;font-size:18px;cursor:pointer" onclick="closeImportWizard()">✕</button>';
-  var h='<div class="cascade-overlay"><div class="cascade-panel" style="max-width:760px;max-height:92vh;overflow-y:auto">';
+  var h='<div class="cascade-overlay"><div class="cascade-panel" style="max-width:'+(wiz.step==='review'?'980px':'760px')+';max-height:92vh;overflow-y:auto">';
   h+='<div class="flex-between mb-8"><div class="fw-800" style="font-size:18px">📥 Import your data</div>'+close+'</div>';
   h+=_wizSteps(wiz.step);
   if(wiz.step==='software'){
@@ -10552,8 +10916,10 @@ function renderWizard(){
       h+='</div>';
     });
     if(wiz.files.some(function(f){return f.status==='error'}))h+='<div class="text-sm" style="color:var(--danger);margin-bottom:8px">Files that could not be read will be left out.</div>';
-    h+='<div class="text-sm text-muted mb-8">Imported in this order: customers → jobs → invoices → certificates → expenses. Duplicates are skipped. Imported invoices are never emailed or chased automatically.</div>';
-    h+='<div class="flex gap-8 mt-8"><button class="btn btn-primary" onclick="wizStartImport()">✅ Import</button><button class="btn btn-secondary" onclick="wiz.step=\'upload\';render()">← Back</button></div>';
+    h+='<div class="text-sm text-muted mb-8">Next you\'ll see every row checked — problems, duplicates and totals — before anything is saved.</div>';
+    h+='<div class="flex gap-8 mt-8"><button class="btn btn-primary" onclick="wizGoReview()">Next: Review every row →</button><button class="btn btn-secondary" onclick="wiz.step=\'upload\';render()">← Back</button></div>';
+  }else if(wiz.step==='review'){
+    h+=_wizRenderReview();
   }else if(wiz.step==='importing'){
     var p=wiz.progress||{done:0,total:0,file:''};
     h+='<div style="text-align:center;padding:20px 0"><div style="font-size:40px;margin-bottom:10px">⏳</div>'+
@@ -10561,10 +10927,10 @@ function renderWizard(){
       '<div style="height:10px;background:var(--bg);border-radius:6px;overflow:hidden;margin-top:12px"><div id="wiz-bar" style="height:100%;width:'+(p.total?Math.round(p.done*100/p.total):0)+'%;background:var(--primary);transition:width .2s"></div></div>'+
       '<div class="text-sm text-muted mt-8">Please keep this page open until it finishes.</div></div>';
   }else if(wiz.step==='done'){
-    var tot=0;wiz.results.forEach(function(r){tot+=r.imported});
-    h+='<div style="text-align:center;margin-bottom:12px"><div style="font-size:48px">'+(tot?'🎉':'⚠️')+'</div><div class="fw-800" style="font-size:20px">'+(tot?tot.toLocaleString()+' records imported':'Nothing was imported')+'</div></div>';
-    h+='<div class="table-wrap"><table style="width:100%;font-size:13px"><thead><tr><th>File</th><th>Type</th><th>Imported</th><th>Duplicates</th><th>Missing details</th><th>Failed</th></tr></thead><tbody>'+
-      wiz.results.map(function(r){return '<tr><td>'+esc(r.name)+'</td><td>'+IMPORT_TYPES[r.type].label+'</td><td class="fw-700">'+r.imported+'</td><td>'+r.skipped+'</td><td>'+r.invalid+'</td><td style="color:'+(r.failed?'var(--danger)':'inherit')+'">'+r.failed+(r.error?' <span title="'+escAttr(r.error)+'">ⓘ</span>':'')+'</td></tr>'}).join('')+
+    var tot=0;wiz.results.forEach(function(r){tot+=r.imported+(r.updated||0)});
+    h+='<div style="text-align:center;margin-bottom:12px"><div style="font-size:48px">'+(tot?'🎉':'⚠️')+'</div><div class="fw-800" style="font-size:20px">'+(tot?tot.toLocaleString()+' records imported or updated':'Nothing was imported')+'</div></div>';
+    h+='<div class="table-wrap"><table style="width:100%;font-size:13px"><thead><tr><th>File</th><th>Type</th><th>Imported</th><th>Updated</th><th>Duplicates skipped</th><th>Couldn\'t import</th><th>Left out</th><th>Failed</th></tr></thead><tbody>'+
+      wiz.results.map(function(r){return '<tr><td>'+esc(r.name)+'</td><td>'+IMPORT_TYPES[r.type].label+'</td><td class="fw-700">'+r.imported+'</td><td>'+(r.updated||0)+'</td><td>'+r.skipped+'</td><td>'+r.invalid+'</td><td>'+(r.excluded||0)+'</td><td style="color:'+(r.failed?'var(--danger)':'inherit')+'">'+r.failed+(r.error?' <span title="'+escAttr(r.error)+'">ⓘ</span>':'')+'</td></tr>'}).join('')+
       '</tbody></table></div>';
     h+='<div class="flex gap-8 mt-16"><button class="btn btn-primary" onclick="closeImportWizard()">Done</button></div>';
   }
