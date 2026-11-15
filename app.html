@@ -7543,6 +7543,7 @@ function pgParts(){
   if(parts.adding)h+=_ppAddForm();
   if(parts.tab==='suppliers')return h+_ppSuppliers();
   if(parts.sel)h+=_ppDetail(parts.sel);
+  h+=_pfFindCard();
   h+='<div class="card"><input class="input mb-16" placeholder="Search by part name, maker, part number or merchant code" value="'+esc(parts.q)+'" oninput="partsSearch(this.value)">';
   if(parts.error)return h+'<div class="text-sm" style="color:var(--danger)">'+esc(parts.error)+'</div></div>';
   if(!parts.rows)return h+'<div class="text-sm text-muted">Loading…</div></div>';
@@ -7558,7 +7559,9 @@ function pgParts(){
 }
 function _ppDetail(p){
   var h='<div class="card mb-16"><div class="flex-between mb-8" style="gap:10px"><div><div class="card-title">'+esc(p.name)+'</div><div class="text-sm text-muted">'+esc([p.manufacturer,p.part_number?'Part no. '+p.part_number:''].filter(Boolean).join(' · ')||'No maker\'s part number yet')+'</div></div><button class="btn btn-secondary btn-sm" onclick="parts.sel=null;render()">Close</button></div>'+
-    '<div class="mb-16">'+_ppPool(p)+'</div>';
+    '<div class="fw-700 text-sm mb-8">👷 Other engineers</div><div class="mb-16">'+_ppPool(p)+'</div>'+
+    '<div class="fw-700 text-sm mb-8">🌐 Online</div><div class="mb-16">'+_pfResults(p.name,p.manufacturer,p.part_number)+'</div>'+
+    '<div class="fw-700 text-sm mb-8">🧾 What you paid</div>';
   if(!parts.hist)return h+'<div class="text-sm text-muted">Loading price history…</div></div>';
   h+='<div class="table-wrap"><table style="width:100%;font-size:13px"><thead><tr><th>Date</th><th>Supplier</th><th>Their code</th><th style="text-align:right">Qty</th><th style="text-align:right">Each (ex VAT)</th></tr></thead><tbody>';
   parts.hist.forEach(function(x){h+='<tr><td>'+_wizUK(x.bought_on)+'</td><td>'+_ppSup(x.suppliers)+'</td><td>'+esc(x.supplier_code||'')+'</td><td style="text-align:right">'+Number(x.qty)+'</td><td style="text-align:right" class="fw-700">'+_wizGBP(x.unit_price)+'</td></tr>'});
@@ -7605,6 +7608,62 @@ function partsHint(jobId,v){
   el.innerHTML='<div class="text-sm text-muted">🔩 Last paid '+_wizGBP(p.last.price)+' each before VAT at '+esc(p.last.supplier||'')+' ('+_wizUK(p.last.date)+')'+(p.cheapest&&p.cheapest.price<p.last.price?' · cheapest '+_wizGBP(p.cheapest.price)+' at '+esc(p.cheapest.supplier||''):'')+'</div>';
 }
 function partsWarm(){if(!parts.dl&&currentUser&&sb&&S.role!=='customer'){parts.dl=[];sb.rpc('find_parts',{p_query:'',p_limit:100}).then(function(res){if(!res.error){parts.dl=res.data||[];partsDatalist()}})}}
+
+// ===== PHASE 4: parts finder — public online prices (server function parts-finder) =====
+parts.web={};parts.find={name:'',maker:'',pn:''};
+function _pfKey(pn,name){var p=String(pn||'').toUpperCase().replace(/[^A-Z0-9]/g,'');return p?'PN:'+p:'NM:'+String(name||'').trim().toLowerCase().replace(/\s+/g,' ')}
+function partsWeb(name,maker,pn,refresh){
+  if(!name&&!pn){toast('error','Enter the part name or the maker\'s part number');return}
+  var k=_pfKey(pn,name),cur=parts.web[k];if(cur&&cur.loading)return;
+  parts.web[k]={loading:true,results:cur&&cur.results,checked_at:cur&&cur.checked_at};render();
+  sb.auth.getSession().then(function(sRes){
+    var token=(sRes.data&&sRes.data.session)?sRes.data.session.access_token:'';
+    return fetch(STRIPE_EDGE_URL+'/parts-finder',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token,'apikey':SUPABASE_KEY},
+      body:JSON.stringify({name:name||'',manufacturer:maker||'',part_number:pn||'',refresh:!!refresh})}).then(function(r){return r.json()});
+  }).then(function(res){
+    parts.web[k]=res&&res.error?{error:res.error,results:cur&&cur.results,checked_at:cur&&cur.checked_at}:{results:(res&&res.results)||[],note:(res&&res.note)||'',checked_at:res&&res.checked_at,cached:res&&res.cached};render();
+  }).catch(function(){parts.web[k]={error:'Couldn\'t reach the price search — check your connection and try again.'};render()});
+}
+function _pfFindGo(){
+  var g=function(id){var e=document.getElementById('pf-'+id);return e?String(e.value||'').trim():''};
+  parts.find={name:g('name'),maker:g('maker'),pn:g('pn')};
+  if(!parts.find.name&&!parts.find.pn){toast('error','Enter the part name or the maker\'s part number');return}
+  parts.find.mine=null;sb.rpc('find_parts',{p_query:parts.find.pn||parts.find.name,p_limit:5}).then(function(r){parts.find.mine=r.error?[]:(r.data||[]);render()});
+  partsWeb(parts.find.name,parts.find.maker,parts.find.pn,false);
+}
+function _pfResults(name,maker,pn){
+  var k=_pfKey(pn,name),w=parts.web[k],a=function(r){return '\''+esc(String(r||'')).replace(/\\/g,'\\\\').replace(/&#39;/g,'\\&#39;')+'\''};
+  var btn='<button class="btn btn-secondary btn-sm" onclick="partsWeb('+a(name)+','+a(maker)+','+a(pn)+','+(w&&w.results?'true':'false')+')">'+(w&&w.results?'↻ Check again':'🌐 Check online prices')+'</button>';
+  if(!w)return '<div class="flex-between" style="gap:10px;flex-wrap:wrap"><div class="text-sm text-muted">Public prices from UK merchants\' websites (not your trade prices).</div>'+btn+'</div>';
+  if(w.loading)return '<div class="text-sm text-muted">🌐 Searching UK merchants… this can take up to a minute.</div>';
+  var h='';
+  if(w.error)h+='<div class="text-sm mb-8" style="color:var(--danger)">'+esc(w.error)+'</div>';
+  if(w.results){
+    var t=w.checked_at?new Date(w.checked_at):null;
+    h+='<div class="flex-between mb-8" style="gap:10px;flex-wrap:wrap"><div class="text-sm text-muted">Public online prices'+(t?' · checked '+t.toLocaleDateString('en-GB',{day:'numeric',month:'short'})+' '+t.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}):'')+' · always confirm on the shop\'s site</div>'+btn+'</div>';
+    var note=w.note?'<details class="mt-8"><summary class="text-sm" style="cursor:pointer">🤖 Moti\'s note on this search</summary><div class="text-sm text-muted" style="white-space:pre-wrap;margin-top:6px">'+esc(w.note)+'</div></details>':'';
+    if(!w.results.length)return h+'<div class="text-sm text-muted">No matching product pages with a price were found on the UK merchants\' sites. Adding the maker\'s part number usually helps.</div>'+note;
+    h+='<div class="table-wrap"><table style="width:100%;font-size:13px"><thead><tr><th>Shop</th><th>Product</th><th style="text-align:right">Price shown</th><th style="text-align:right">Before VAT</th><th>Stock</th><th></th></tr></thead><tbody>';
+    w.results.forEach(function(r){
+      var safe=/^https:\/\//.test(String(r.url||''));
+      h+='<tr><td class="fw-700">'+esc(r.shop)+'</td><td>'+esc(r.title)+'</td><td style="text-align:right" class="fw-700">'+_wizGBP(r.price)+'<div class="text-muted" style="font-size:11px">'+(r.vat==='inc'?'inc VAT':r.vat==='ex'?'ex VAT':'VAT not stated')+(r.seen_on_page?' · <span title="This price appears in the shop page text the search returned">✓ on page</span>':'')+'</div></td>'+
+        '<td style="text-align:right">'+(r.price_ex_vat!=null?_wizGBP(r.price_ex_vat):'—')+'</td><td>'+(r.in_stock===true?'✅ In stock':r.in_stock===false?'Out of stock':'—')+'</td>'+
+        '<td>'+(safe?'<a href="'+esc(r.url)+'" target="_blank" rel="noopener noreferrer">Open ↗</a>':'')+'</td></tr>';
+    });
+    h+='</tbody></table></div>'+note;
+  }else if(!w.error)h+=btn;
+  else h+=btn;
+  return h;
+}
+function _pfFindCard(){
+  var f=parts.find,v=function(x){return esc(x||'')};
+  var h='<div class="card mb-16"><div class="card-title mb-8">🌐 Find a part</div><div class="text-sm text-muted mb-8">Look up a part you haven\'t bought yet — your own prices, other engineers\' range and public online prices in one place.</div>'+
+    '<div class="flex gap-8 mb-8" style="flex-wrap:wrap"><input id="pf-name" class="input" placeholder="Part (e.g. diverter valve cartridge)" value="'+v(f.name)+'" style="flex:2;min-width:180px"><input id="pf-maker" class="input" placeholder="Maker (e.g. Vaillant)" value="'+v(f.maker)+'" style="flex:1;min-width:120px"><input id="pf-pn" class="input" placeholder="Maker\'s part no. (best)" value="'+v(f.pn)+'" style="flex:1;min-width:140px"><button class="btn btn-primary btn-sm" onclick="_pfFindGo()">Search</button></div>';
+  if(!f.name&&!f.pn)return h+'</div>';
+  if(f.mine&&f.mine.length){h+='<div class="fw-700 text-sm mt-8 mb-8">Your prices</div>';f.mine.forEach(function(p){h+='<div class="text-sm">🔩 '+esc(p.name)+(p.last?' — last '+_wizGBP(p.last.price)+' at '+esc(p.last.supplier||''):'')+'</div>'})}
+  else if(f.mine)h+='<div class="text-sm text-muted mb-8">You haven\'t bought this before.</div>';
+  return h+'<div class="mt-8">'+_pfResults(f.name,f.maker,f.pn)+'</div></div>';
+}
 
 // ===== PHASE 2: job photos (private storage) + Moti activity =====
 function _isUuid(x){return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(x||''))}

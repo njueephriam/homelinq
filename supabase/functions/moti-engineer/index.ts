@@ -8,6 +8,7 @@
 // v20: photos (Moti reads images), up to 6 proposals approved together (confirmActions), activity log (moti_activity), new tools:
 //      log_job_expense, upsert_boiler_passport, save_imported_certificate, attach_photo_to_job, add_job_note
 // v21: parts log — log_parts (receipt lines into the engineer's parts list) and find_part_prices (own prices + anonymous shared range)
+// v22: check_online_prices — public prices from UK merchants' websites via the parts-finder function (same cache + daily limit)
 // Secret required: ANTHROPIC_API_KEY
 // Optional secrets for push: VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT
 // ============================================================
@@ -49,6 +50,8 @@ const READ_TOOLS = [
     input_schema: { type: "object", properties: { from_date: { type: "string" }, to_date: { type: "string" } }, required: ["from_date","to_date"] } },
   { name: "find_part_prices", description: "Search the engineer's own parts list (built from their receipts): what they paid per item before VAT, when and where, the cheapest supplier in the last year, and — only when at least 3 engineers have shared prices for that maker's part number — the anonymous typical price range. Use for 'what did I pay for…', 'where's cheapest for…', or to price a quote from real costs.",
     input_schema: { type: "object", properties: { query: { type: "string", description: "part name, maker's part number or merchant code" } }, required: ["query"] } },
+  { name: "check_online_prices", description: "Look up PUBLIC online prices for a part on UK merchants' websites (Screwfix, Toolstation, City Plumbing, Plumb Center, Wolseley, PlumbNation, BES, heating spares shops…). Takes up to a minute and uses one of the engineer's 30 daily checks (results are shared for 24 hours). Only use when the engineer asks where to buy, what it costs online/elsewhere, or asks you to check prices — not for every parts question. Give the maker's part number whenever you know it.",
+    input_schema: { type: "object", properties: { name: { type: "string" }, manufacturer: { type: "string" }, part_number: { type: "string", description: "manufacturer's part number" } }, required: ["name"] } },
   { name: "open_import_wizard", description: "Show the engineer a button in this chat that opens HomeLinq's import wizard, to bring in customers, jobs, invoices, certificates and expenses from another system or spreadsheet. Use it whenever they want to import, migrate, move over from another platform or upload their records. Call it together with your reply.",
     input_schema: { type: "object", properties: {} } },
 ];
@@ -108,7 +111,7 @@ function checkWrite(name: string, input: any, vatReg: boolean): string {
 }
 const ALL_TOOLS = [...READ_TOOLS, ...WRITE_TOOLS];
 
-async function runRead(sb: any, name: string, input: any) {
+async function runRead(sb: any, name: string, input: any, token = "") {
   const lim = Math.min(Number(input?.limit) || 20, 50);
   try {
     if (name === "list_jobs") {
@@ -148,6 +151,14 @@ async function runRead(sb: any, name: string, input: any) {
         out.push({ name: p.name, manufacturer: p.manufacturer, part_number: p.part_number, times_bought: p.times_bought, last: p.last, cheapest_last_12_months: p.cheapest, shared_range: shared });
       }
       return { parts: out, note: "All prices are per item, before VAT. shared_range is anonymous and only shown when 3+ engineers have prices." };
+    }
+    if (name === "check_online_prices") {
+      const r = await fetch(SUPABASE_URL + "/functions/v1/parts-finder", { method: "POST", headers: { "Content-Type": "application/json", "apikey": ANON, "Authorization": "Bearer " + token },
+        body: JSON.stringify({ name: String(input.name || "").slice(0, 160), manufacturer: String(input.manufacturer || "").slice(0, 60), part_number: String(input.part_number || "").slice(0, 60) }) });
+      const d = await r.json().catch(() => ({ error: "Online price search isn't available right now." }));
+      if (d.error) return { error: d.error };
+      return { online_prices: (d.results || []).map((x: any) => ({ shop: x.shop, product: x.title, price: x.price, vat: x.vat === "inc" ? "inc VAT" : x.vat === "ex" ? "ex VAT" : "VAT not stated", before_vat: x.price_ex_vat, in_stock: x.in_stock, link: x.url, price_seen_on_page: x.seen_on_page })),
+        finder_note: d.note || "", checked_at: d.checked_at, note: "PUBLIC online prices (not the engineer's trade prices). Tell them to confirm on the shop's site before buying." };
     }
     if (name === "financial_summary") {
       const { data, error } = await sb.rpc("get_books", { p_from: input.from_date, p_to: input.to_date, p_lines: false });
@@ -448,7 +459,7 @@ Deno.serve(async (req: Request) => {
       "MONEY & VAT: " + firstName + (vatReg ? " IS VAT-registered — for every invoice or job completion you must ask which VAT rate to use (20%, 5% or no VAT); never assume." : " is not VAT-registered — invoices have no VAT.") + " Everything you create goes into their books (Accounting page) exactly like work done in the app. For figures, use financial_summary — never add things up yourself. Log expenses with the right HMRC category. Tax figures are estimates; HomeLinq does not file with HMRC.",
       "PHOTOS: when the engineer sends a photo, say briefly what you can actually see and read — never guess hidden, cut-off or blurry details; say plainly what you can't read and ask for a clearer photo if needed. Data plate → propose upsert_boiler_passport for the property (use list_jobs to find today's job address if they don't say). Fault code on a display → explain what that code generally indicates for that make/model and sensible checks, clearly as general guidance to confirm against the manufacturer's manual; offer a quote if parts are likely. Receipt or merchant invoice → read supplier, date, items, VAT and total; propose log_job_expense for the job it belongs to (check list_jobs) or log_expense for a general business cost, and also propose log_parts so each item and its price goes into their parts list. Old paper gas safety certificate → propose save_imported_certificate, keeping the ORIGINAL engineer's name, Gas Safe number, dates and certificate number. When something is worth keeping, also propose attach_photo_to_job. Don't repeat customers' personal details from photos more than needed.",
       "SAFETY: never state whether an installation is safe or unsafe, and never classify it (Immediately Dangerous / At Risk / Not to Current Standards). That is " + firstName + "'s professional judgement under the Gas Industry Unsafe Situations Procedure. You may point out what you can see (e.g. corrosion, staining, a damaged flue) and suggest they check it.",
-      "PARTS & PRICES: when asked what something costs, where it's cheapest, or to price a job, call find_part_prices first. Quote their own recent prices (per item, before VAT) with supplier and date; mention the anonymous shared range only when it is provided. Never invent prices — if they have none, say so (web price search is coming).",
+      "PARTS & PRICES: when asked what something costs, where it's cheapest, or to price a job, call find_part_prices first. Quote their own recent prices (per item, before VAT) with supplier and date; mention the anonymous shared range only when it is provided. Never invent prices. If they ask where to buy or what it costs online, call check_online_prices (it takes up to a minute — say you're checking) and lay it out as: their own last price → other engineers' range (if any) → public online prices, cheapest first, with shop, price and whether it's inc/ex VAT. Online prices are public, not trade prices — say to confirm on the shop's site. If the finder's note says the part number looks wrong, tell them.",
       "SEVERAL ACTIONS: you may propose up to 6 changes at once by calling several tools in one reply — the engineer ticks the ones they want and approves them together.",
       "IMPORTING DATA: when the engineer wants to bring their records over from another platform (Commusoft, Gas Engineer Software, Tradify, Joblogic, ServiceM8, BigChange) or from spreadsheets, call open_import_wizard so a button appears, and explain briefly: they export their customers, jobs, invoices, certificates and expenses as CSV or Excel from the old system, then tap the paperclip in this chat (or Settings → Import Data → Start import) and attach the files — several at once is fine. Inside the import, you (Moti) read the files with them: you work out which system and what each file is, match the columns, spot problems and link invoices and jobs to the right customers, and they approve every change. Then they review every row (problems, duplicates, totals) before anything is saved; old invoices are never emailed or chased; imported certificates keep the original engineer's details; and they can undo an import afterwards. Customers' personal details stay on their device — you only see column headings and patterns. You cannot read files inside this chat itself — always point to the import.",
       "For anything that CHANGES data or sends an email, just call the matching tool. The system automatically pauses and asks " + firstName + " to confirm before it commits — so you do NOT need to ask 'shall I?' yourself, and never claim something is done unless a tool result confirms it.",
@@ -496,7 +507,7 @@ Deno.serve(async (req: Request) => {
       const results: any[] = [];
       for (const b of content) {
         if (b.type === "tool_use") {
-          const r = await runRead(sb, b.name, b.input || {});
+          const r = await runRead(sb, b.name, b.input || {}, token);
           results.push({ type: "tool_result", tool_use_id: b.id, content: JSON.stringify(r).slice(0, 6000) });
         }
       }

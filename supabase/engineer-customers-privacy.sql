@@ -283,3 +283,40 @@ revoke execute on function public.find_parts(text, int) from public, anon;
 grant execute on function public.find_parts(text, int) to authenticated;
 -- Tested (rolled back): same pump from 2 suppliers merges on maker number (994-11158 = 99411158), last vs cheapest correct,
 -- merchant code searchable, other engineers can't see or write your parts, shared range hidden below 3 engineers and for name-only parts.
+
+-- ============================================================
+-- Phase 4 W1 (15 Nov 2026): parts finder cache + daily limit  [migrations phase4_w1_web_price_cache, phase4_w1b_web_price_cache_note]
+-- ============================================================
+create table if not exists public.web_price_cache (
+  match_key text primary key,             -- PN:<maker part number> or NM:<name>
+  query text not null,
+  results jsonb not null default '[]'::jsonb,   -- public prices + links only
+  checked_at timestamptz not null default now(),
+  note text not null default ''
+);
+alter table public.web_price_cache enable row level security;  -- no policies: server (service role) only
+
+create table if not exists public.parts_finder_usage (
+  engineer_id uuid not null references auth.users(id) on delete cascade,
+  day date not null default current_date,
+  calls int not null default 0,
+  primary key (engineer_id, day)
+);
+alter table public.parts_finder_usage enable row level security;
+drop policy if exists "Engineers read own finder usage" on public.parts_finder_usage;
+create policy "Engineers read own finder usage" on public.parts_finder_usage for select using (engineer_id = auth.uid());
+
+create or replace function public.bump_parts_finder_usage(p_engineer uuid)
+returns int language plpgsql security definer set search_path = public as $$
+declare v int;
+begin
+  if not public.is_service_role() then raise exception 'Not authorised'; end if;
+  insert into public.parts_finder_usage(engineer_id, day, calls) values (p_engineer, current_date, 1)
+  on conflict (engineer_id, day) do update set calls = parts_finder_usage.calls + 1
+  returning calls into v;
+  return v;
+end $$;
+revoke execute on function public.bump_parts_finder_usage(uuid) from public, anon, authenticated;
+-- Edge function: supabase/functions/parts-finder (Sonnet + web search limited to 15 UK merchant domains).
+-- Tested live: made-up part number -> no prices; wrong number for the description -> refused with a note;
+-- real parts -> real product links, inc/ex VAT read from the page; invented links, other sites, duplicates and zero prices removed.
