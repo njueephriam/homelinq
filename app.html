@@ -782,17 +782,21 @@ function loadEngineerData() {
       render();
     }
   });
-  // Load customers list
-  sb.from('customers').select('*').then(function(res) {
+  // Load customers list — ONLY this engineer's own customer records (privacy: engineer_customers + RLS)
+  sb.from('engineer_customers').select('*').eq('engineer_id', currentUser.id).order('full_name', { ascending: true }).then(function(res) {
     if(res.error){console.log('Load customers error:',res.error.message);return}
     if (res.data && res.data.length > 0) {
-      // Merge with existing — keep mock data structure intact
       var dbCustomers = res.data.map(function(c, idx) {
+        var _nm = c.full_name || '';
         return {
-          id: c.id || idx + 100, name: c.full_name || '', ini: (c.full_name || 'XX').split(' ').map(function(w){return w[0]}).join(''),
+          id: c.id, _supaId: c.id, linkedCustomerId: c.linked_customer_id || null,
+          name: _nm, ini: (_nm || 'XX').split(' ').map(function(w){return w[0]||''}).join('').substring(0,2).toUpperCase(),
           addr: c.address || '', email: c.email || '', phone: c.phone || '',
-          boiler: c.boiler_make ? (c.boiler_make + ' ' + (c.boiler_model || '')) : '—',
-          last: '', next: '', jobs: 0, spent: 0, c: 'teal', isCompany: false, hist: []
+          postcode: c.postcode || '', houseNumber: c.house_number || '',
+          boiler: c.boiler || '—', company: c.is_company ? _nm : '',
+          contactPerson: c.contact_person || '', refPrefix: c.ref_prefix || '',
+          last: '', next: '', jobs: 0, spent: 0, c: c.is_company ? 'purple' : 'teal', isCompany: !!c.is_company, hist: [],
+          source: c.source || 'manual'
         };
       });
       if (dbCustomers.length > 0) {
@@ -1866,7 +1870,7 @@ function confirmAcceptMarketJob(){
     var exists=customers.find(function(c){return c.name===mj.cust&&!c.isCompany});
     if(!exists){
       var ini=mj.cust.split(' ').map(function(w){return w[0]}).join('').substring(0,2).toUpperCase();
-      var _mjCust={id:nextCustId++,name:mj.cust,ini:ini,addr:mj.addr,email:mj.custEmail,phone:mj.phone,boiler:mj.boiler||'',last:'New',next:'TBD',jobs:0,spent:0,c:'teal',isCompany:false,hist:[]};
+      var _mjCust={id:nextCustId++,name:mj.cust,ini:ini,addr:mj.addr,email:mj.custEmail,phone:mj.phone,boiler:mj.boiler||'',last:'New',next:'TBD',jobs:0,spent:0,c:'teal',isCompany:false,hist:[],linkedCustomerId:mj._custId||null,source:'marketplace'};
       customers.push(_mjCust);
       saveCustomerToSupabase(_mjCust);
     }
@@ -8053,8 +8057,8 @@ function getCustInvoices(custName,custId){
 }
 function syncCustomerInvoices(){
   customers.forEach(function(c){
-    var cInvs=getCustInvoices(c.name,c.id);
-    c.jobs=Math.max(c.jobs,cInvs.length);
+    var cInvs=getCustInvoices(c.name,c.linkedCustomerId||c.id);
+    c.jobs=Math.max(c.jobs||0,cInvs.length);
     c.spent=cInvs.reduce(function(s,i){return s+(i.amt+(i.vat||0))},0);
     if(cInvs.length&&!c.hist.length){
       cInvs.forEach(function(inv){
@@ -8091,24 +8095,24 @@ function pgCustomers(){
   var companyCusts=customers.filter(function(c){return c.isCompany});
   var totalOwed=invoices.filter(function(i){return i.st==='unpaid'}).reduce(function(s,i){return s+(i.amt+i.vat)},0);
   var totalCollected=invoices.filter(function(i){return i.st==='paid'}).reduce(function(s,i){return s+(i.amt+i.vat)},0);
-  var custsWithDebt=customers.filter(function(c){return getCustOwed(c.name,c.id)>0}).length;
+  var custsWithDebt=customers.filter(function(c){return getCustOwed(c.name,c.linkedCustomerId||c.id)>0}).length;
   return '<div class="main-header"><div class="flex-between"><div><h1>Customers &amp; Companies</h1><p>'+directCusts.length+' direct · '+companyCusts.length+' companies'+(custsWithDebt?' · <span style="color:var(--warning);font-weight:700">'+custsWithDebt+' with unpaid invoices</span>':'')+'</p></div><div class="flex gap-8"><button class="btn btn-primary" onclick="ncType=\'direct\';go(\'addCustomer\')">+ Add Customer</button><button class="btn btn-secondary" onclick="ncType=\'company\';go(\'addCustomer\')">+ Add Company</button></div></div></div>'+
     '<div class="stats-grid" style="grid-template-columns:repeat(4,1fr)"><div class="card stat-card"><div class="stat-label">Total Customers</div><div class="stat-value">'+(directCusts.length+companyCusts.length)+'</div></div><div class="card stat-card"><div class="stat-label">Collected</div><div class="stat-value" style="color:var(--success)">£'+totalCollected.toFixed(0)+'</div></div><div class="card stat-card"><div class="stat-label">Outstanding</div><div class="stat-value" style="color:'+(totalOwed>0?'var(--warning)':'var(--muted)')+'">£'+totalOwed.toFixed(0)+'</div></div><div class="card stat-card"><div class="stat-label">Collection Rate</div><div class="stat-value" style="color:var(--primary)">'+(totalCollected+totalOwed>0?Math.round(totalCollected/(totalCollected+totalOwed)*100):100)+'%</div></div></div>'+
     '<div class="card mb-24"><div class="card-header"><div class="card-title">🏢 Companies &amp; Insurance ('+companyCusts.length+')</div></div>'+
-    (companyCusts.length?companyCusts.map(function(c){var owed=getCustOwed(c.name,c.id);return '<div class="list-item" onclick="go(\'customerDetail\',{cid:\''+c.id+'\'})"><div class="avatar avatar-'+c.c+'">'+c.ini+'</div><div class="list-item-info"><div class="list-item-title">'+esc(c.name)+' <span class="company-tag" style="margin-left:4px">Company</span></div><div class="list-item-sub">'+esc(c.email||'No email')+(c.contactPerson?' · Contact: '+esc(c.contactPerson):'')+'</div></div><div style="text-align:right"><div class="text-sm fw-700">'+c.jobs+' jobs · £'+c.spent.toLocaleString()+'</div>'+(owed>0?'<div class="text-sm" style="color:var(--warning);font-weight:700">£'+owed.toFixed(0)+' owed</div>':'<div class="text-sm" style="color:var(--success)">✓ All paid</div>')+'</div></div>'}).join(''):'<div class="text-center text-muted" style="padding:16px">No companies added yet</div>')+'</div>'+
+    (companyCusts.length?companyCusts.map(function(c){var owed=getCustOwed(c.name,c.linkedCustomerId||c.id);return '<div class="list-item" onclick="go(\'customerDetail\',{cid:\''+c.id+'\'})"><div class="avatar avatar-'+c.c+'">'+c.ini+'</div><div class="list-item-info"><div class="list-item-title">'+esc(c.name)+' <span class="company-tag" style="margin-left:4px">Company</span></div><div class="list-item-sub">'+esc(c.email||'No email')+(c.contactPerson?' · Contact: '+esc(c.contactPerson):'')+'</div></div><div style="text-align:right"><div class="text-sm fw-700">'+c.jobs+' jobs · £'+(c.spent||0).toLocaleString()+'</div>'+(owed>0?'<div class="text-sm" style="color:var(--warning);font-weight:700">£'+owed.toFixed(0)+' owed</div>':'<div class="text-sm" style="color:var(--success)">✓ All paid</div>')+'</div></div>'}).join(''):'<div class="text-center text-muted" style="padding:16px">No companies added yet</div>')+'</div>'+
     '<div class="card"><div class="card-header"><div class="card-title">👤 Direct Customers ('+directCusts.length+')</div></div><div class="search-bar"><span>🔍</span><input placeholder="Search customers..."></div>'+
-    directCusts.map(function(c){var owed=getCustOwed(c.name,c.id);var custInvs=getCustInvoices(c.name,c.id);var paidC=custInvs.filter(function(i){return i.st==='paid'}).length;var unpaidC=custInvs.filter(function(i){return i.st==='unpaid'}).length;return '<div class="list-item" style="cursor:pointer;transition:all .15s;border-left:3px solid '+(owed>0?'var(--warning)':'transparent')+'" onclick="go(\'customerDetail\',{cid:\''+c.id+'\'})" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'transparent\'"><div class="avatar avatar-'+c.c+'">'+c.ini+'</div><div class="list-item-info"><div class="list-item-title">'+esc(c.name)+(owed>0?' <span class="payment-badge unpaid" style="font-size:10px;padding:2px 8px;margin-left:6px">£'+owed.toFixed(0)+' owed</span>':'')+'</div><div class="list-item-sub">'+esc(c.addr||'No address')+(c.email?' · '+esc(c.email):'')+'</div></div><div style="text-align:right"><div class="text-sm fw-700">'+c.jobs+' job'+(c.jobs!==1?'s':'')+'</div>'+(custInvs.length?'<div style="display:flex;gap:6px;justify-content:flex-end;margin-top:4px">'+(paidC?'<span style="background:#D1FAE5;color:#059669;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px">'+paidC+' paid</span>':'')+(unpaidC?'<span style="background:#FEF3C7;color:#92400E;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px">'+unpaidC+' unpaid</span>':'')+'</div>':'<div class="text-sm text-muted">£'+c.spent.toLocaleString()+' total</div>')+'</div><span style="color:var(--muted);font-size:16px;margin-left:8px">→</span></div>'}).join('')+'</div>';
+    directCusts.map(function(c){var owed=getCustOwed(c.name,c.linkedCustomerId||c.id);var custInvs=getCustInvoices(c.name,c.linkedCustomerId||c.id);var paidC=custInvs.filter(function(i){return i.st==='paid'}).length;var unpaidC=custInvs.filter(function(i){return i.st==='unpaid'}).length;return '<div class="list-item" style="cursor:pointer;transition:all .15s;border-left:3px solid '+(owed>0?'var(--warning)':'transparent')+'" onclick="go(\'customerDetail\',{cid:\''+c.id+'\'})" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'transparent\'"><div class="avatar avatar-'+c.c+'">'+c.ini+'</div><div class="list-item-info"><div class="list-item-title">'+esc(c.name)+(owed>0?' <span class="payment-badge unpaid" style="font-size:10px;padding:2px 8px;margin-left:6px">£'+owed.toFixed(0)+' owed</span>':'')+'</div><div class="list-item-sub">'+esc(c.addr||'No address')+(c.email?' · '+esc(c.email):'')+'</div></div><div style="text-align:right"><div class="text-sm fw-700">'+c.jobs+' job'+(c.jobs!==1?'s':'')+'</div>'+(custInvs.length?'<div style="display:flex;gap:6px;justify-content:flex-end;margin-top:4px">'+(paidC?'<span style="background:#D1FAE5;color:#059669;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px">'+paidC+' paid</span>':'')+(unpaidC?'<span style="background:#FEF3C7;color:#92400E;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px">'+unpaidC+' unpaid</span>':'')+'</div>':'<div class="text-sm text-muted">£'+(c.spent||0).toLocaleString()+' total</div>')+'</div><span style="color:var(--muted);font-size:16px;margin-left:8px">→</span></div>'}).join('')+'</div>';
 }
 function pgCustDetail(){
   var c=S.selCustomer;if(!c)return '';
   var isComp=c.isCompany;
   var tagBadge=isComp?'<span class="company-tag" style="font-size:13px;padding:4px 12px">🏢 Company</span>':'<span class="direct-tag" style="font-size:13px;padding:4px 12px">👤 Direct Customer</span>';
-  var custInvs=getCustInvoices(c.name,c.id);
-  var owed=getCustOwed(c.name,c.id);var paidTotal=getCustPaid(c.name,c.id);
+  var custInvs=getCustInvoices(c.name,c.linkedCustomerId||c.id);
+  var owed=getCustOwed(c.name,c.linkedCustomerId||c.id);var paidTotal=getCustPaid(c.name,c.linkedCustomerId||c.id);
   var unpaidInvs=custInvs.filter(function(i){return i.st==='unpaid'});
   var paidInvs=custInvs.filter(function(i){return i.st==='paid'});
   return '<button class="back-btn" onclick="go(\'customers\')">← Back</button><div class="main-header"><div class="flex-between"><div><h1>'+esc(c.name)+'</h1><p>'+(isComp?(c.contactPerson?'Contact: '+esc(c.contactPerson):'Company account'):esc(c.addr||''))+'</p></div><div class="flex gap-8">'+tagBadge+(owed>0?'<button class="btn btn-warning btn-sm" onclick="unpaidInvs=invoices.filter(function(i){return i.cust===\''+c.name.replace(/'/g,"\\'")+'\'&&i.st===\'unpaid\'});if(unpaidInvs.length){sendChase(unpaidInvs[0].id)}">📧 Chase Payment</button>':'')+(isComp?'':'<button class="btn btn-primary btn-sm" onclick="toast(\'success\',\'Reminder sent to '+escAttr(c.name)+'\')">Send Reminder</button>')+'<button class="btn btn-secondary btn-sm">Edit</button></div></div></div>'+
-    '<div class="stats-grid" style="grid-template-columns:repeat(5,1fr)"><div class="card stat-card" style="cursor:pointer;border:2px solid transparent;transition:border .15s" onclick="var el=document.getElementById(\'custJobsSection\');if(el)el.scrollIntoView({behavior:\'smooth\'})" onmouseover="this.style.borderColor=\'var(--primary)\'" onmouseout="this.style.borderColor=\'transparent\'"><div class="stat-label">Total Jobs</div><div class="stat-value">'+c.jobs+'</div><div class="text-sm text-muted mt-8" style="font-size:11px">Click to view all</div></div><div class="card stat-card" style="cursor:pointer;border:2px solid transparent;transition:border .15s" onclick="var el=document.getElementById(\'custJobsSection\');if(el)el.scrollIntoView({behavior:\'smooth\'})" onmouseover="this.style.borderColor=\'var(--success)\'" onmouseout="this.style.borderColor=\'transparent\'"><div class="stat-label">'+(isComp?'Revenue':'Total Billed')+'</div><div class="stat-value">£'+c.spent.toLocaleString()+'</div><div class="text-sm text-muted mt-8" style="font-size:11px">Click to view breakdown</div></div><div class="card stat-card"><div class="stat-label">Collected</div><div class="stat-value" style="color:var(--success)">£'+paidTotal.toFixed(0)+'</div></div><div class="card stat-card"><div class="stat-label">Outstanding</div><div class="stat-value" style="color:'+(owed>0?'var(--warning)':'var(--muted)')+'">£'+owed.toFixed(0)+'</div>'+(owed>0?'<div class="stat-change down">'+unpaidInvs.length+' unpaid</div>':'<div class="stat-change up">All clear</div>')+'</div><div class="card stat-card"><div class="stat-label">'+(isComp?'Status':'Next Due')+'</div><div class="stat-value" style="font-size:18px">'+(c.next||'TBD')+'</div></div></div>'+
+    '<div class="stats-grid" style="grid-template-columns:repeat(5,1fr)"><div class="card stat-card" style="cursor:pointer;border:2px solid transparent;transition:border .15s" onclick="var el=document.getElementById(\'custJobsSection\');if(el)el.scrollIntoView({behavior:\'smooth\'})" onmouseover="this.style.borderColor=\'var(--primary)\'" onmouseout="this.style.borderColor=\'transparent\'"><div class="stat-label">Total Jobs</div><div class="stat-value">'+c.jobs+'</div><div class="text-sm text-muted mt-8" style="font-size:11px">Click to view all</div></div><div class="card stat-card" style="cursor:pointer;border:2px solid transparent;transition:border .15s" onclick="var el=document.getElementById(\'custJobsSection\');if(el)el.scrollIntoView({behavior:\'smooth\'})" onmouseover="this.style.borderColor=\'var(--success)\'" onmouseout="this.style.borderColor=\'transparent\'"><div class="stat-label">'+(isComp?'Revenue':'Total Billed')+'</div><div class="stat-value">£'+(c.spent||0).toLocaleString()+'</div><div class="text-sm text-muted mt-8" style="font-size:11px">Click to view breakdown</div></div><div class="card stat-card"><div class="stat-label">Collected</div><div class="stat-value" style="color:var(--success)">£'+paidTotal.toFixed(0)+'</div></div><div class="card stat-card"><div class="stat-label">Outstanding</div><div class="stat-value" style="color:'+(owed>0?'var(--warning)':'var(--muted)')+'">£'+owed.toFixed(0)+'</div>'+(owed>0?'<div class="stat-change down">'+unpaidInvs.length+' unpaid</div>':'<div class="stat-change up">All clear</div>')+'</div><div class="card stat-card"><div class="stat-label">'+(isComp?'Status':'Next Due')+'</div><div class="stat-value" style="font-size:18px">'+(c.next||'TBD')+'</div></div></div>'+
     // Unpaid invoices alert
     (unpaidInvs.length?'<div class="card mb-24" style="background:var(--warning-light);border:2px solid var(--warning)"><div class="card-header"><div style="display:flex;align-items:center;gap:8px"><span style="font-size:20px">⚠️</span><div class="card-title" style="color:#92400E">Unpaid Invoices ('+unpaidInvs.length+')</div></div><div class="fw-800" style="color:#92400E;font-size:18px">£'+owed.toFixed(2)+'</div></div>'+
     unpaidInvs.map(function(inv){
@@ -8663,7 +8667,8 @@ function newQuoteSearchCust(q){
   }).join('');
 }
 function newQuoteSelectCust(id,name,email,addr){
-  window._newQuoteCust={name:name,email:email,addr:addr,custId:id};
+  var _qc=customers.find(function(x){return String(x.id)===String(id)});
+  window._newQuoteCust={name:name,email:email,addr:addr,custId:(_qc&&_qc.linkedCustomerId)?_qc.linkedCustomerId:null};
   var n=document.getElementById('newQuoteCustName');if(n)n.value=name;
   var e=document.getElementById('newQuoteCustEmail');if(e)e.value=email;
   var a=document.getElementById('newQuoteCustAddr');if(a)a.value=addr;
@@ -9588,7 +9593,7 @@ function executeImport(){
       if(!item.name)return;
       var exists=customers.find(function(c){return c.name.toLowerCase()===String(item.name).toLowerCase()});
       if(!exists){
-        customers.push({id:'CUST-'+(nextCustId++),name:String(item.name),email:item.email||'',phone:item.phone||'',address:item.address||'',postcode:item.postcode||'',company:item.company||''});
+        var _impName=String(item.name);customers.push({id:'CUST-'+(nextCustId++),name:_impName,ini:_impName.split(' ').map(function(w){return w[0]}).join(''),email:item.email||'',phone:item.phone||'',addr:item.address||'',address:item.address||'',postcode:item.postcode||'',company:item.company||'',boiler:'—',last:'',next:'',jobs:0,spent:0,c:'teal',isCompany:!!item.company,hist:[]});customers[customers.length-1].source='import';saveCustomerToSupabase(customers[customers.length-1]);
         imported++;
       }
     } else if(type==='jobs'){
@@ -10176,13 +10181,23 @@ function saveCustomerToSupabase(cust) {
   }
   var row = {
     id: custId,
+    engineer_id: currentUser.id,
     full_name: cust.name || '',
     email: cust.email || '',
     phone: cust.phone || '',
-    address: cust.addr || '',
-    postcode: cust.postcode || ''
+    address: cust.addr || cust.address || '',
+    house_number: cust.houseNumber || '',
+    postcode: cust.postcode || '',
+    is_company: !!cust.isCompany,
+    contact_person: cust.contactPerson || '',
+    ref_prefix: cust.refPrefix || '',
+    boiler: (cust.boiler && cust.boiler !== '—') ? cust.boiler : '',
+    linked_customer_id: cust.linkedCustomerId || null,
+    source: cust.source || 'manual',
+    updated_at: new Date().toISOString()
   };
-  sb.from('customers').upsert(row, {onConflict: 'id'}).then(function(res) {
+  // Privacy: engineer-owned record, never the customer's own account row
+  sb.from('engineer_customers').upsert(row, {onConflict: 'id'}).then(function(res) {
     if (res.error) { console.log('Save customer error:', res.error.message); }
     else { console.log('Customer saved to Supabase:', custId); }
   });
