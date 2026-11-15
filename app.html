@@ -3356,6 +3356,7 @@ function sendHomeLinqEmail(to, subject, type, data, opts){
   var payload={to:to,subject:subject,type:type||'generic',data:data||{}};
   if(opts&&opts.reply_to){payload.reply_to=opts.reply_to}
   if(opts&&opts.from_name){payload.from_name=opts.from_name}
+  if(opts&&opts.attachments&&opts.attachments.length){payload.attachments=opts.attachments}
   sb.auth.getSession().then(function(sRes){
     var token=(sRes.data&&sRes.data.session)?sRes.data.session.access_token:'';
     fetch(STRIPE_EDGE_URL+'/send-email',{
@@ -3374,6 +3375,71 @@ function sendHomeLinqEmail(to, subject, type, data, opts){
       toast('warning','Email service unavailable — saved locally');
     });
   });
+}
+function _invoicePdfAttachment(inv){
+  var doc=null;try{doc=buildInvoicePDFDoc(inv)}catch(e){console.log('Invoice PDF build error:',e)}
+  return doc?_pdfAttachment(doc,'Invoice_'+String(inv.id).replace(/[^A-Za-z0-9-]/g,'')+'.pdf'):null;
+}
+function buildInvoicePDFDoc(inv){
+  if(typeof window.jspdf==='undefined')return null;
+  var eng=S.engineer;
+  var doc=new window.jspdf.jsPDF({unit:'mm',format:'a4'});
+  var m=15,pw=210,y=18;
+  var green=[75,122,46];
+  var linkedJob=null;
+  Object.keys(allJobs).forEach(function(d){allJobs[d].forEach(function(j){if(inv.jobNum&&j.jobNum===inv.jobNum)linkedJob=j})});
+  var propAddr=inv.addr||(linkedJob?linkedJob.addr:'');
+  // Logo + business
+  if(eng.logo&&String(eng.logo).indexOf('data:image')===0){
+    try{var fmt=String(eng.logo).indexOf('image/png')>-1?'PNG':'JPEG';doc.addImage(eng.logo,fmt,m,y-6,30,15)}catch(e){console.log('Logo skipped:',e)}
+  }
+  doc.setFont('helvetica','bold');doc.setFontSize(22);doc.setTextColor(green[0],green[1],green[2]);
+  doc.text('INVOICE',pw-m,y,{align:'right'});
+  doc.setFontSize(10);doc.setTextColor(60,60,60);doc.setFont('helvetica','normal');
+  var ry=y+7;
+  [['Invoice No:',String(inv.id)],['Date:',String(inv.date||'')],['Due:',String(inv.dueDate||'Within 14 days')]].forEach(function(r){
+    doc.setFont('helvetica','bold');doc.text(r[0],pw-m-45,ry);doc.setFont('helvetica','normal');doc.text(r[1],pw-m,ry,{align:'right'});ry+=5;
+  });
+  var ly=y+14;
+  doc.setFont('helvetica','bold');doc.setFontSize(11);doc.setTextColor(20,20,20);
+  doc.text(String(eng.business||eng.name||''),m,ly);ly+=5;
+  doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(80,80,80);
+  [eng.addr,eng.postcode,eng.phone,eng.email,eng.gasSafe?'Gas Safe Reg: '+eng.gasSafe:'',(eng.vatReg&&eng.vatNumber)?'VAT No: '+eng.vatNumber:''].forEach(function(t){if(t){doc.text(String(t),m,ly);ly+=4.5}});
+  // Bill to / property
+  var by=Math.max(ly,ry)+6;
+  doc.setDrawColor(220,220,220);doc.line(m,by-3,pw-m,by-3);
+  doc.setFont('helvetica','bold');doc.setFontSize(9);doc.setTextColor(green[0],green[1],green[2]);
+  doc.text('BILL TO',m,by+2);doc.text('PROPERTY',pw/2+5,by+2);
+  doc.setFont('helvetica','normal');doc.setTextColor(40,40,40);
+  var billName=(inv.type==='company'&&inv.company)?inv.company:(inv.cust||'Customer');
+  var bl=[billName,inv.custEmail||'',inv.custPhone||''];
+  var pl=doc.splitTextToSize(String(propAddr||'—'),pw/2-m-5);
+  var yy=by+7;bl.forEach(function(t){if(t){doc.text(String(t),m,yy);yy+=4.5}});
+  doc.text(pl,pw/2+5,by+7);
+  var ty=Math.max(yy,by+7+pl.length*4.5)+4;
+  // Line items (same logic as the on-screen invoice)
+  var rows=[];var subtotal=0;var mainAmt=inv.amt||0;var labourAmt=mainAmt;
+  if(inv.expenses&&inv.expenses.length){var et=inv.expenses.reduce(function(s2,e){return s2+e.amt},0);labourAmt=mainAmt-et;if(labourAmt<0)labourAmt=mainAmt}
+  rows.push(['1',String(inv.desc||'Gas engineer services'),'£'+labourAmt.toFixed(2),'£'+labourAmt.toFixed(2)]);subtotal+=labourAmt;
+  if(inv.expenses&&inv.expenses.length){inv.expenses.forEach(function(e){rows.push(['1',String(e.desc),'£'+Number(e.amt).toFixed(2),'£'+Number(e.amt).toFixed(2)]);subtotal+=Number(e.amt)})}
+  var hasVat=inv.vatInclusive||inv.vat>0;var tax=hasVat?(inv.vat||0):0;
+  if(doc.autoTable){
+    doc.autoTable({startY:ty,head:[['Qty','Description','Unit price','Amount']],body:rows,theme:'striped',
+      headStyles:{fillColor:green,textColor:255},styles:{fontSize:9},columnStyles:{0:{cellWidth:14},2:{halign:'right',cellWidth:28},3:{halign:'right',cellWidth:28}},margin:{left:m,right:m}});
+    ty=doc.lastAutoTable.finalY+6;
+  }else{
+    rows.forEach(function(r){doc.text(r[1],m,ty);doc.text(r[3],pw-m,ty,{align:'right'});ty+=6});ty+=4;
+  }
+  doc.setFontSize(10);doc.setTextColor(40,40,40);
+  doc.text('Subtotal',pw-m-50,ty);doc.text('£'+subtotal.toFixed(2),pw-m,ty,{align:'right'});ty+=6;
+  if(hasVat){doc.text('VAT (20%)',pw-m-50,ty);doc.text('£'+Number(tax).toFixed(2),pw-m,ty,{align:'right'});ty+=6}
+  doc.setDrawColor(20,20,20);doc.line(pw-m-55,ty-3,pw-m,ty-3);
+  doc.setFont('helvetica','bold');doc.setFontSize(13);doc.setTextColor(green[0],green[1],green[2]);
+  doc.text('TOTAL',pw-m-50,ty+3);doc.text('£'+(subtotal+tax).toFixed(2),pw-m,ty+3,{align:'right'});
+  if(inv.st==='paid'){doc.setFontSize(11);doc.text('PAID'+(inv.paidDate?' — '+inv.paidDate:''),m,ty+3)}
+  doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(140,140,140);
+  doc.text('Thank you for your business. Issued via HomeLinq — a trading name of Infinite Life Records Ltd.',pw/2,287,{align:'center'});
+  return doc;
 }
 function sendInvoiceEmail(invId){
   var inv=invoices.find(function(i){return i.id===invId});if(!inv)return;
@@ -3425,11 +3491,12 @@ function sendInvoiceEmail(invId){
     summaryHTML+='</table></div>';
     summaryHTML+='<div style="text-align:center;padding:20px 0">';
     summaryHTML+='<a href="'+publicUrl+'" style="display:inline-block;padding:14px 40px;background:#4B7A2E;color:#ffffff;text-decoration:none;border-radius:8px;font-size:16px;font-weight:700" target="_blank">View Full Invoice</a>';
-    summaryHTML+='<div style="font-size:12px;color:#9ca3af;margin-top:12px">Click the button above to view, print, or save your invoice as PDF</div></div>';
+    var invAtt=_invoicePdfAttachment(inv);
+    summaryHTML+='<div style="font-size:12px;color:#9ca3af;margin-top:12px">'+(invAtt?'Your invoice is also attached to this email as a PDF.':'Click the button above to view, print, or save your invoice as PDF')+'</div></div>';
     summaryHTML+='</div>';
     sendHomeLinqEmail(email, 'Invoice '+inv.id+' from '+engName, 'generic', {
       message:summaryHTML
-    }, {reply_to:S.engineer.email||'', from_name:engName});
+    }, {reply_to:S.engineer.email||'', from_name:engName, attachments:invAtt?[invAtt]:[]});
     toast('success','Invoice '+inv.id+' sent to '+email);
   }).catch(function(err){
     console.log('Invoice upload failed:', err);
@@ -3438,9 +3505,10 @@ function sendInvoiceEmail(invId){
 }
 function _sendInvEmailFallback(inv, email, engName, proHTML){
   var emailHTML='<div style="max-width:640px;margin:0 auto;font-family:Arial,Helvetica,sans-serif">'+proHTML+'</div>';
+  var invAtt=_invoicePdfAttachment(inv);
   sendHomeLinqEmail(email, 'Invoice '+inv.id+' from '+engName, 'generic', {
     message:emailHTML
-  }, {reply_to:S.engineer.email||'', from_name:engName});
+  }, {reply_to:S.engineer.email||'', from_name:engName, attachments:invAtt?[invAtt]:[]});
   toast('warning','Invoice sent inline (hosted version unavailable)');
 }
 function toggleInvoiceVat(invId){
@@ -6847,9 +6915,15 @@ function updateCertResult(ci){
 }
 // === PDF GENERATION — Standard Homeowner/Landlord Gas Safety Record format ===
 function downloadCertPDF(ci){
+  var doc=buildCertPDFDoc(ci);if(!doc)return;
   var c=cp12Certs[ci];
+  doc.save(c.id+'_Gas_Safety_Record.pdf');
+  toast('success','Gas Safety Record downloaded — '+c.id);
+}
+function buildCertPDFDoc(ci){
+  var c=cp12Certs[ci];if(!c)return null;
   var ct=CERT_TYPES[c.certType||'domestic'];
-  if(typeof window.jspdf==='undefined'){toast('error','PDF library still loading — try again in a moment');return}
+  if(typeof window.jspdf==='undefined'){toast('error','PDF library still loading — try again in a moment');return null}
   var doc=new window.jspdf.jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
   var pw=297,ph=210,m=5;
   var cw=pw-m*2; // content width
@@ -7057,9 +7131,15 @@ function downloadCertPDF(ci){
   // Next inspection date value - overlay on same cell
   doc.setFontSize(5.5);doc.setTextColor(0,0,0);doc.setFont('helvetica','normal');
   doc.text(c.expiry||'',m+sLbl*2+sVal*2-sDt+sDt/2,Y+5,{align:'center'});
-  // Save
-  doc.save(c.id+'_Gas_Safety_Record.pdf');
-  toast('success','Gas Safety Record downloaded — '+c.id);
+  return doc;
+}
+function _pdfAttachment(doc,filename){
+  try{
+    var uri=doc.output('datauristring');
+    var b64=uri.substring(uri.indexOf(',')+1);
+    if(!b64)return null;
+    return {filename:filename,content:b64};
+  }catch(e){console.log('PDF attachment error:',e);return null}
 }
 // === SEND CERT EMAIL ===
 function sendCertEmail(ci){
@@ -7069,6 +7149,8 @@ function sendCertEmail(ci){
   var recipLabel=c.recipientType==='agent'?'Agent':c.recipientType==='landlord'?'Landlord':'Tenant';
   if(!email){toast('error','No email address for this '+recipLabel.toLowerCase()+'. Please add their email first.');return}
   var engName=S.engineer.business||S.engineer.name||'Your Engineer';
+  var certDoc=null;try{certDoc=buildCertPDFDoc(ci)}catch(e){console.log('Cert PDF build error:',e)}
+  var certAtt=certDoc?_pdfAttachment(certDoc,String(c.id).replace(/[^A-Za-z0-9-]/g,'')+'_Gas_Safety_Record.pdf'):null;
   sendHomeLinqEmail(email,'Gas Safety Certificate '+c.id+' from '+engName,'certificate',{
     cert_id:c.id,
     cert_type:ct.name,
@@ -7079,8 +7161,10 @@ function sendCertEmail(ci){
     expiry:c.expiry||'N/A',
     engineer_name:S.engineer.name||'',
     engineer_business:S.engineer.business||'',
-    gas_safe:S.engineer.gasSafe||''
-  },{reply_to:S.engineer.email||'',from_name:engName});
+    gas_safe:S.engineer.gasSafe||'',
+    has_attachment:!!certAtt
+  },{reply_to:S.engineer.email||'',from_name:engName,attachments:certAtt?[certAtt]:[]});
+  if(!certAtt){toast('warning','Certificate emailed without the PDF attached — the recipient can still open it in the app')}
   c.sent=true;
   c.sentTo=recipLabel+' ('+email+')';
   c.sentDate=localDateKey(new Date());
