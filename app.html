@@ -4115,7 +4115,25 @@ function custNewQuote(cid){
   showCreateQuoteOverlay();
 }
 function custNewCert(cid){
-  certDashType=certDashType||'domestic';
+  var c=customers.find(function(x){return String(x.id)===String(cid)});if(!c)return;
+  var ex=document.getElementById('certTypePickOverlay');if(ex)ex.remove();
+  var ov=document.createElement('div');ov.className='cascade-overlay';ov.id='certTypePickOverlay';
+  ov.onclick=function(e){if(e.target===ov)ov.remove()};
+  var suggested=c.isCompany?'non_domestic':'domestic';
+  var rows=Object.keys(CERT_TYPES).map(function(k){
+    var t=CERT_TYPES[k];var sug=(k===suggested);
+    return '<div onclick="custStartCert(\''+escAttr(String(cid))+'\',\''+k+'\')" style="display:flex;align-items:center;gap:12px;padding:12px 14px;border:2px solid '+(sug?t.color:'var(--border)')+';border-radius:12px;margin-bottom:8px;cursor:pointer;background:'+(sug?'rgba(16,185,129,.06)':'#fff')+'">'+
+      '<div style="font-size:24px">'+t.icon+'</div><div style="flex:1;text-align:left"><div class="fw-700">'+esc(t.name)+(sug?' <span class="text-sm" style="color:'+t.color+'">· suggested</span>':'')+'</div>'+
+      '<div class="text-sm text-muted">'+esc(t.desc)+'</div></div><div style="color:var(--muted)">›</div></div>';
+  }).join('');
+  ov.innerHTML='<div class="cascade-panel" style="max-width:520px;padding:22px"><div class="flex-between" style="margin-bottom:12px"><div class="fw-800" style="font-size:18px">New certificate for '+esc(c.name)+'</div>'+
+    '<button style="background:none;border:none;font-size:18px;cursor:pointer" onclick="document.getElementById(\'certTypePickOverlay\').remove()">✕</button></div>'+rows+'</div>';
+  document.body.appendChild(ov);
+}
+function custStartCert(cid,type){
+  var ov=document.getElementById('certTypePickOverlay');if(ov)ov.remove();
+  if(!CERT_TYPES[type])type='domestic';
+  certDashType=type;
   pgCP12New();
   setTimeout(function(){certWizardSelectCustomer(cid)},60);
 }
