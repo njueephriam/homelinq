@@ -6609,7 +6609,7 @@ function certWizardSelectCustomer(custId){
   // Build selected banner + certificate history
   var rh='<div style="padding:8px 12px;background:#D1FAE5;border-radius:8px;font-size:13px;color:#065F46">&#10003; Selected: <strong>'+esc(c.name)+'</strong></div>';
   rh+=certWizardBuildHistory(c.name,c.email);
-  document.getElementById('certSearchResults').innerHTML=rh;
+  var srEl=document.getElementById('certSearchResults');if(srEl)srEl.innerHTML=rh;
   toast('success','Customer details filled in');
 }
 function certWizardGetCustomerCerts(name,email){

@@ -5,7 +5,7 @@
    - Receives web-push notifications from Moti and shows them
      even when the app is closed.
    ============================================================ */
-var CACHE = "homelinq-moti-v21";
+var CACHE = "homelinq-moti-v22";
 
 self.addEventListener("install", function () {
   self.skipWaiting();
