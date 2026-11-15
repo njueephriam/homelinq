@@ -723,7 +723,8 @@ function loadEngineerData() {
           parts: j.parts ? (typeof j.parts === 'string' ? JSON.parse(j.parts) : j.parts) : [],
           fromMarketplace: j.from_marketplace || false,
           _marketplaceId: j.marketplace_job_id || null,
-          _marketCustId: j.customer_id || null
+          _marketCustId: j.customer_id || null,
+          ecid: j.engineer_customer_id || null
         };
         // Restore marketplace-specific fields
         if(loadedJob.fromMarketplace&&loadedJob._marketplaceId){
@@ -746,6 +747,10 @@ function loadEngineerData() {
         }
         allJobs[dateKey].push(loadedJob);
       });
+      // Job numbers continue from the highest saved GL- number (prevents overwriting an existing job)
+      var _maxGL=0;
+      Object.keys(allJobs).forEach(function(d){allJobs[d].forEach(function(x){var mm=/^GL-(\d+)/.exec(String(x.jobNum||''));if(mm){var nn=parseInt(mm[1],10);if(nn>_maxGL)_maxGL=nn}})});
+      if(_maxGL>=glJobNum)glJobNum=_maxGL+1;
       render();
       loadJobExpenses();
     }
@@ -766,6 +771,11 @@ function loadEngineerData() {
           paidDate: inv.paid_date || null, paidMethod: inv.paid_method || null,
           paidRef: inv.paid_reference || null, chaseCount: inv.chase_count || 0,
           sentDate: inv.sent_date || '', dueDate: inv.due_date || '', payLink: true,
+          items: Array.isArray(inv.items) ? inv.items : [], vatRate: (inv.vat_rate===null||inv.vat_rate===undefined)?null:Number(inv.vat_rate),
+          ecid: inv.engineer_customer_id || null,
+          addr: (inv.meta&&inv.meta.addr)||'', custPhone: (inv.meta&&inv.meta.custPhone)||'',
+          type: (inv.meta&&inv.meta.type)||undefined, company: (inv.meta&&inv.meta.company)||undefined, compRef: (inv.meta&&inv.meta.compRef)||undefined,
+          vatNumber: (inv.meta&&inv.meta.vatNumber)||'',
           _supaId: inv.id
         };
       });
@@ -3014,8 +3024,31 @@ function submitReview(engineerId,engineerName,jobType){
   }
   render();
 }
+var _completionVatRate=null;var _completionArgs=null;
+function askCompletionVat(args){
+  _completionArgs=args;
+  var ex=document.getElementById('completionVatOverlay');if(ex)ex.remove();
+  var ov=document.createElement('div');ov.className='cascade-overlay';ov.id='completionVatOverlay';
+  ov.innerHTML='<div class="cascade-panel" style="max-width:420px;text-align:center;padding:24px"><div style="font-size:32px;margin-bottom:8px">🧾</div>'+
+    '<div class="fw-800" style="font-size:18px;margin-bottom:6px">VAT on this job\'s invoice</div>'+
+    '<div class="text-sm text-muted" style="margin-bottom:16px">Choose the VAT rate for the invoice that will be created. For callouts already paid online, VAT is shown as included in the amount paid.</div>'+
+    '<div class="flex gap-8" style="justify-content:center;flex-wrap:wrap">'+
+    '<button class="btn btn-primary" onclick="resumeCompletion(0.2)">20%</button>'+
+    '<button class="btn btn-primary" onclick="resumeCompletion(0.05)">5%</button>'+
+    '<button class="btn btn-secondary" onclick="resumeCompletion(0)">No VAT</button></div>'+
+    '<div style="margin-top:14px"><button class="btn btn-secondary btn-sm" onclick="_completionArgs=null;document.getElementById(\'completionVatOverlay\').remove()">Cancel</button></div></div>';
+  document.body.appendChild(ov);
+}
+function resumeCompletion(rate){
+  var ov=document.getElementById('completionVatOverlay');if(ov)ov.remove();
+  if(!_completionArgs)return;
+  var a=_completionArgs;_completionArgs=null;_completionVatRate=rate;
+  finalizeCompletion(a[0],a[1],a[2],a[3],a[4]);
+}
 function finalizeCompletion(id,completionType,labourCharge,partsCost,diagnosis){
   var j=findJob(id);if(!j)return;
+  if(S.engineer.vatReg&&_completionVatRate===null){askCompletionVat([id,completionType,labourCharge,partsCost,diagnosis]);return}
+  var vatRate=S.engineer.vatReg?(_completionVatRate||0):0;_completionVatRate=null;
   j.st='completed'; // Always mark job complete — diagnosis creates callout invoice, books update
   var jobDate=j._date||S.selectedDate;
   var calloutFee=j.calloutFee||0;
@@ -3028,27 +3061,27 @@ function finalizeCompletion(id,completionType,labourCharge,partsCost,diagnosis){
   var nonBillableTotal=j.expenses.filter(function(e){return !e.billable}).reduce(function(s,e){return s+e.amt},0);
   var allExpTotal=j.expenses.reduce(function(s,e){return s+e.amt},0);
   // === INVOICE LOGIC based on completion type ===
-  var invId='INV-00'+nextInvNum++;
+  var invId=nextInvId();
   var invTo=j.type==='company'?j.company+' ('+j.compRef+')':j.cust;
   var custEmail=j.custEmail||'';
   var invAddr=j.addr||'';
   var invCustPhone=j.custPhone||'';
   var invAmt=0;var invDesc='';var invVat=0;
-  var engVatReg=S.engineer.vatReg||false;
+  var engVatReg=vatRate>0;
   if(completionType==='fixed'){
     // Fixed on spot: callout (single line, not broken down) + labour invoice
     // Callout invoice — single line item
-    var calloutInvId='INV-00'+nextInvNum++;
-    var calloutVat=engVatReg?Math.round(calloutFee*0.2*100)/100:0;
-    var calloutInv={id:invId,cust:invTo,custEmail:custEmail,addr:invAddr,custPhone:invCustPhone,date:fmtDate(jobDate),amt:calloutFee,st:'paid',desc:'Callout & Diagnosis',vat:calloutVat,vatInclusive:engVatReg,vatNumber:S.engineer.vatNumber||'',type:j.type,company:j.company,compRef:j.compRef,jobNum:j.jobNum,expenses:[],paidDate:fmtDate(jobDate),paidMethod:'stripe',paidRef:'ESCROW-RELEASE',chaseCount:0,sentDate:fmtDate(jobDate),lastChase:null,nextChase:null,payLink:false,isCallout:true,platformFee:platformFee};
+    var calloutInvId=nextInvId();
+    var calloutVat=vatRate>0?Math.round((calloutFee-calloutFee/(1+vatRate))*100)/100:0;
+    var calloutInv={id:invId,cust:invTo,custEmail:custEmail,addr:invAddr,custPhone:invCustPhone,date:fmtDate(jobDate),amt:Math.round((calloutFee-calloutVat)*100)/100,st:'paid',desc:'Callout & Diagnosis',vat:calloutVat,vatInclusive:engVatReg,vatNumber:S.engineer.vatNumber||'',vatRate:vatRate,ecid:j.ecid||null,type:j.type,company:j.company,compRef:j.compRef,jobNum:j.jobNum,expenses:[],paidDate:fmtDate(jobDate),paidMethod:'stripe',paidRef:'ESCROW-RELEASE',chaseCount:0,sentDate:fmtDate(jobDate),lastChase:null,nextChase:null,payLink:false,isCallout:true,platformFee:platformFee};
     invoices.unshift(calloutInv);
     if(currentUser)saveInvoiceToSupabase(calloutInv);
     // Labour invoice (if any) — needs paying
     if(labourCharge>0){
-      var labInvId='INV-00'+nextInvNum++;
+      var labInvId=nextInvId();
       var labBaseAmt=labourCharge+billableTotal;
-      var labVat=engVatReg?Math.round(labBaseAmt*0.2*100)/100:0;
-      var labInv={id:labInvId,cust:invTo,custEmail:custEmail,addr:invAddr,custPhone:invCustPhone,date:fmtDate(jobDate),amt:labBaseAmt,st:'unpaid',desc:'Labour — '+j.job+(billableExp.length?' + '+billableExp.length+' expense(s)':''),vat:labVat,vatInclusive:engVatReg,vatNumber:S.engineer.vatNumber||'',type:j.type,company:j.company,compRef:j.compRef,jobNum:j.jobNum,expenses:billableExp,paidDate:null,paidMethod:null,paidRef:null,chaseCount:0,sentDate:fmtDate(jobDate),lastChase:null,nextChase:null,payLink:true,isCallout:false};
+      var labVat=Math.round(labBaseAmt*vatRate*100)/100;
+      var labInv={id:labInvId,cust:invTo,custEmail:custEmail,addr:invAddr,custPhone:invCustPhone,date:fmtDate(jobDate),amt:labBaseAmt,st:'unpaid',desc:'Labour — '+j.job+(billableExp.length?' + '+billableExp.length+' expense(s)':''),vat:labVat,vatInclusive:engVatReg,vatNumber:S.engineer.vatNumber||'',vatRate:vatRate,ecid:j.ecid||null,type:j.type,company:j.company,compRef:j.compRef,jobNum:j.jobNum,expenses:billableExp,paidDate:null,paidMethod:null,paidRef:null,chaseCount:0,sentDate:fmtDate(jobDate),lastChase:null,nextChase:null,payLink:true,isCallout:false};
       invoices.unshift(labInv);
       if(currentUser)saveInvoiceToSupabase(labInv);
       invAmt=calloutFee+labourCharge+billableTotal;
@@ -3057,16 +3090,16 @@ function finalizeCompletion(id,completionType,labourCharge,partsCost,diagnosis){
     }
   }else if(completionType==='diagnosis'){
     // Diagnosis only: callout invoice released from escrow, no labour
-    var diagVat=engVatReg?Math.round(calloutFee*0.2*100)/100:0;
-    var diagInv={id:invId,cust:invTo,custEmail:custEmail,addr:invAddr,custPhone:invCustPhone,date:fmtDate(jobDate),amt:calloutFee,st:'paid',desc:'Callout & Diagnosis',vat:diagVat,vatInclusive:engVatReg,vatNumber:S.engineer.vatNumber||'',type:j.type,company:j.company,compRef:j.compRef,jobNum:j.jobNum,expenses:[],paidDate:fmtDate(jobDate),paidMethod:'stripe',paidRef:'ESCROW-RELEASE',chaseCount:0,sentDate:fmtDate(jobDate),lastChase:null,nextChase:null,payLink:false,isCallout:true,platformFee:platformFee};
+    var diagVat=vatRate>0?Math.round((calloutFee-calloutFee/(1+vatRate))*100)/100:0;
+    var diagInv={id:invId,cust:invTo,custEmail:custEmail,addr:invAddr,custPhone:invCustPhone,date:fmtDate(jobDate),amt:Math.round((calloutFee-diagVat)*100)/100,st:'paid',desc:'Callout & Diagnosis',vat:diagVat,vatInclusive:engVatReg,vatNumber:S.engineer.vatNumber||'',vatRate:vatRate,ecid:j.ecid||null,type:j.type,company:j.company,compRef:j.compRef,jobNum:j.jobNum,expenses:[],paidDate:fmtDate(jobDate),paidMethod:'stripe',paidRef:'ESCROW-RELEASE',chaseCount:0,sentDate:fmtDate(jobDate),lastChase:null,nextChase:null,payLink:false,isCallout:true,platformFee:platformFee};
     invoices.unshift(diagInv);
     if(currentUser)saveInvoiceToSupabase(diagInv);
     invAmt=calloutFee;
   }else if(completionType==='return'){
     // Return visit: labour + parts only, no callout fee
     var returnAmt=(j.quoteLabourCost||0)+(j.quotePartsCost||0)+billableTotal;
-    var returnVat=engVatReg?Math.round(returnAmt*0.2*100)/100:0;
-    var returnInv={id:invId,cust:invTo,custEmail:custEmail,addr:invAddr,custPhone:invCustPhone,date:fmtDate(jobDate),amt:returnAmt,st:'unpaid',desc:'Return Visit — Labour & Parts'+(billableExp.length?' + '+billableExp.length+' expense(s)':''),vat:returnVat,vatInclusive:engVatReg,vatNumber:S.engineer.vatNumber||'',type:j.type,company:j.company,compRef:j.compRef,jobNum:j.jobNum,expenses:billableExp,paidDate:null,paidMethod:null,paidRef:null,chaseCount:0,sentDate:fmtDate(jobDate),lastChase:null,nextChase:null,payLink:true,isCallout:false};
+    var returnVat=Math.round(returnAmt*vatRate*100)/100;
+    var returnInv={id:invId,cust:invTo,custEmail:custEmail,addr:invAddr,custPhone:invCustPhone,date:fmtDate(jobDate),amt:returnAmt,st:'unpaid',desc:'Return Visit — Labour & Parts'+(billableExp.length?' + '+billableExp.length+' expense(s)':''),vat:returnVat,vatInclusive:engVatReg,vatNumber:S.engineer.vatNumber||'',vatRate:vatRate,ecid:j.ecid||null,type:j.type,company:j.company,compRef:j.compRef,jobNum:j.jobNum,expenses:billableExp,paidDate:null,paidMethod:null,paidRef:null,chaseCount:0,sentDate:fmtDate(jobDate),lastChase:null,nextChase:null,payLink:true,isCallout:false};
     invoices.unshift(returnInv);
     if(currentUser)saveInvoiceToSupabase(returnInv);
     invAmt=returnAmt;
@@ -3078,8 +3111,8 @@ function finalizeCompletion(id,completionType,labourCharge,partsCost,diagnosis){
   }else{
     // Standard (non-marketplace) completion
     invAmt=j.amt+billableTotal;
-    var stdVat=engVatReg?Math.round(invAmt*0.2*100)/100:0;
-    var stdInv={id:invId,cust:invTo,custEmail:custEmail,addr:invAddr,custPhone:invCustPhone,date:fmtDate(jobDate),amt:invAmt,st:'unpaid',desc:j.job+(billableExp.length?' + '+billableExp.length+' expense(s)':''),vat:stdVat,vatInclusive:engVatReg,vatNumber:S.engineer.vatNumber||'',type:j.type,company:j.company,compRef:j.compRef,jobNum:j.jobNum,expenses:billableExp,paidDate:null,paidMethod:null,paidRef:null,chaseCount:0,sentDate:fmtDate(jobDate),lastChase:null,nextChase:null,payLink:true};
+    var stdVat=Math.round(invAmt*vatRate*100)/100;
+    var stdInv={id:invId,cust:invTo,custEmail:custEmail,addr:invAddr,custPhone:invCustPhone,date:fmtDate(jobDate),amt:invAmt,st:'unpaid',desc:j.job+(billableExp.length?' + '+billableExp.length+' expense(s)':''),vat:stdVat,vatInclusive:engVatReg,vatNumber:S.engineer.vatNumber||'',vatRate:vatRate,ecid:j.ecid||null,type:j.type,company:j.company,compRef:j.compRef,jobNum:j.jobNum,expenses:billableExp,paidDate:null,paidMethod:null,paidRef:null,chaseCount:0,sentDate:fmtDate(jobDate),lastChase:null,nextChase:null,payLink:true};
     invoices.unshift(stdInv);
     if(currentUser)saveInvoiceToSupabase(stdInv);
   }
@@ -3397,8 +3430,12 @@ function buildInvoicePDFDoc(inv){
   // Line items (same logic as the on-screen invoice)
   var rows=[];var subtotal=0;var mainAmt=inv.amt||0;var labourAmt=mainAmt;
   if(inv.expenses&&inv.expenses.length){var et=inv.expenses.reduce(function(s2,e){return s2+e.amt},0);labourAmt=mainAmt-et;if(labourAmt<0)labourAmt=mainAmt}
+  if(inv.items&&inv.items.length){
+    inv.items.forEach(function(it){var q=Number(it.qty)||1;var u=Number(it.unit)||0;rows.push([String(q),String(it.desc||''),'£'+u.toFixed(2),'£'+(q*u).toFixed(2)]);subtotal+=q*u});
+  }else{
   rows.push(['1',String(inv.desc||'Gas engineer services'),'£'+labourAmt.toFixed(2),'£'+labourAmt.toFixed(2)]);subtotal+=labourAmt;
   if(inv.expenses&&inv.expenses.length){inv.expenses.forEach(function(e){rows.push(['1',String(e.desc),'£'+Number(e.amt).toFixed(2),'£'+Number(e.amt).toFixed(2)]);subtotal+=Number(e.amt)})}
+  }
   var hasVat=inv.vatInclusive||inv.vat>0;var tax=hasVat?(inv.vat||0):0;
   if(doc.autoTable){
     doc.autoTable({startY:ty,head:[['Qty','Description','Unit price','Amount']],body:rows,theme:'striped',
@@ -3409,7 +3446,7 @@ function buildInvoicePDFDoc(inv){
   }
   doc.setFontSize(10);doc.setTextColor(40,40,40);
   doc.text('Subtotal',pw-m-50,ty);doc.text('£'+subtotal.toFixed(2),pw-m,ty,{align:'right'});ty+=6;
-  if(hasVat){doc.text('VAT (20%)',pw-m-50,ty);doc.text('£'+Number(tax).toFixed(2),pw-m,ty,{align:'right'});ty+=6}
+  if(hasVat){doc.text('VAT ('+_vatPct(inv)+'%)',pw-m-50,ty);doc.text('£'+Number(tax).toFixed(2),pw-m,ty,{align:'right'});ty+=6}
   doc.setDrawColor(20,20,20);doc.line(pw-m-55,ty-3,pw-m,ty-3);
   doc.setFont('helvetica','bold');doc.setFontSize(13);doc.setTextColor(green[0],green[1],green[2]);
   doc.text('TOTAL',pw-m-50,ty+3);doc.text('£'+(subtotal+tax).toFixed(2),pw-m,ty+3,{align:'right'});
@@ -3463,7 +3500,7 @@ function sendInvoiceEmail(invId){
     summaryHTML+='<tr><td style="padding:8px 0;color:#6b7280">Invoice No:</td><td style="padding:8px 0;font-weight:700;text-align:right">'+inv.id+'</td></tr>';
     summaryHTML+='<tr><td style="padding:8px 0;color:#6b7280">Date:</td><td style="padding:8px 0;font-weight:700;text-align:right">'+inv.date+'</td></tr>';
     summaryHTML+='<tr><td style="padding:8px 0;color:#6b7280">Description:</td><td style="padding:8px 0;font-weight:700;text-align:right">'+(inv.desc||'Gas engineer services')+'</td></tr>';
-    if(hasVat){summaryHTML+='<tr><td style="padding:8px 0;color:#6b7280">VAT (20%):</td><td style="padding:8px 0;font-weight:700;text-align:right">£'+inv.vat.toFixed(2)+'</td></tr>';}
+    if(hasVat){summaryHTML+='<tr><td style="padding:8px 0;color:#6b7280">VAT ('+_vatPct(inv)+'%):</td><td style="padding:8px 0;font-weight:700;text-align:right">£'+inv.vat.toFixed(2)+'</td></tr>';}
     summaryHTML+='<tr style="border-top:2px solid #111"><td style="padding:12px 0;font-size:18px;font-weight:900">TOTAL</td><td style="padding:12px 0;font-size:18px;font-weight:900;text-align:right;color:#4B7A2E">£'+total.toFixed(2)+'</td></tr>';
     summaryHTML+='</table></div>';
     summaryHTML+='<div style="text-align:center;padding:20px 0">';
@@ -3544,6 +3581,10 @@ function buildProInvoiceHTML(inv){
       items.push({qty:1,desc:e.desc+(e.billable?' (billable)':''),unit:e.amt,total:e.amt});
       subtotal+=e.amt;
     });
+  }
+  if(inv.items&&inv.items.length){
+    items=[];subtotal=0;
+    inv.items.forEach(function(it){var q=Number(it.qty)||1;var u=Number(it.unit)||0;items.push({qty:q,desc:String(it.desc||''),unit:u,total:q*u});subtotal+=q*u});
   }
   var discount=0;
   var tax=hasVat?inv.vat:0;
@@ -3886,7 +3927,8 @@ function saveNewJob(){
     cust:custName,custEmail:custEmail,custPhone:custPhone,
     addr:addr,job:document.getElementById('nj-job').value||'Service',
     dur:document.getElementById('nj-dur').value||'1hr',amt:parseFloat(document.getElementById('nj-amt').value)||0,
-    st:'upcoming',mi:manualMi?parseFloat(manualMi):autoMi,type:jtype,company:comp,compRef:compRef,expenses:[],parts:(window._njParts||[]).slice()};
+    st:'upcoming',mi:manualMi?parseFloat(manualMi):autoMi,type:jtype,company:comp,compRef:compRef,expenses:[],parts:(window._njParts||[]).slice(),
+    ecid:(function(){var _sc=custId?customers.find(function(c){return String(c.id)===String(custId)}):null;return _sc?(_sc._supaId||null):null})()};
   window._njParts=[];
   var day=document.getElementById('nj-day').value;
   if(!allJobs[day])allJobs[day]=[];
@@ -4024,16 +4066,58 @@ function closeCompanyNotifyDialog(){
   window._pendingCompanyNotify=null;
   go('jobsheet');
 }
-function saveNewInvoice(){
-  var c=document.getElementById('ni-cust').value||'Customer';var d=document.getElementById('ni-desc').value||'Service';
-  var a=parseFloat(document.getElementById('ni-amt').value)||0;var v=Math.round(a*0.2*100)/100;
-  var custEmailEl=document.getElementById('ni-email');
-  var custEmail=custEmailEl?custEmailEl.value:'';
-  var today=new Date();var dateStr=today.getDate()+' '+['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][today.getMonth()]+' '+today.getFullYear();
-  var newInv={id:'INV-00'+nextInvNum++,cust:c,custEmail:custEmail,date:dateStr,amt:a,st:'unpaid',desc:d,vat:v};
+function nextInvId(){var n=nextInvNum++;var s2=String(n);while(s2.length<4)s2='0'+s2;return 'INV-'+s2}
+function _vatPct(inv){var r=(inv&&inv.vatRate!==null&&inv.vatRate!==undefined)?Number(inv.vatRate):((inv&&inv.amt)?Number(inv.vat||0)/Number(inv.amt):0.2);return Math.round(r*100)}
+function saveNewInvoice(sendAfter){
+  var st=_niState();
+  var c=null;
+  if(st.newCust){
+    var nm=String(st.ncName||'').trim();
+    if(!nm){toast('error','Enter the new customer\'s name');return}
+    var ini=nm.split(' ').map(function(w){return w[0]||''}).join('').substring(0,2).toUpperCase();
+    c={id:nextCustId++,name:nm,ini:ini,addr:st.addr||'',email:st.email||'',phone:st.phone||'',boiler:'—',last:'New',next:'TBD',jobs:0,spent:0,c:'teal',isCompany:false,hist:[],source:'manual'};
+    customers.push(c);
+    saveCustomerToSupabase(c);
+  }else{
+    c=customers.find(function(x){return String(x.id)===String(st.custId)});
+    if(!c){toast('error','Choose a customer (or add a new one)');return}
+  }
+  var items=[];
+  st.items.forEach(function(it){var d=String(it.desc||'').trim();var u=Number(it.unit)||0;var q=Number(it.qty)||1;if(d&&u>0)items.push({desc:d,qty:q,unit:Math.round(u*100)/100})});
+  if(!items.length){toast('error','Add at least one item with a description and price');return}
+  if(S.engineer.vatReg&&st.vatRate===null){toast('error','Choose the VAT rate for this invoice (20%, 5% or No VAT)');return}
+  var t=_niTotals();
+  var mon=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var today=new Date();
+  var dateStr=today.getDate()+' '+mon[today.getMonth()]+' '+today.getFullYear();
+  var due=new Date(today.getTime()+(st.dueDays||14)*86400000);
+  var dueKey=localDateKey(due);
+  var dueStr=due.getDate()+' '+mon[due.getMonth()]+' '+due.getFullYear();
+  var desc=items[0].desc+(items.length>1?' + '+(items.length-1)+' more item'+(items.length>2?'s':''):'');
+  var newInv={id:nextInvId(),cust:c.name,custEmail:String(st.email||'').trim(),custPhone:st.phone||'',addr:st.addr||'',date:dateStr,
+    amt:t.sub,vat:t.vat,vatInclusive:t.vat>0,vatRate:S.engineer.vatReg?t.rate:0,vatNumber:S.engineer.vatNumber||'',
+    items:items,st:'unpaid',desc:desc,ecid:c._supaId||null,dueDate:dueStr,dueDateKey:dueKey,
+    type:c.isCompany?'company':'direct',company:c.isCompany?c.name:null,chaseCount:0,expenses:[]};
   invoices.unshift(newInv);
   saveInvoiceToSupabase(newInv);
-  toast('success','Invoice created for '+esc(c));go('invoices');
+  window._ni=null;
+  toast('success','Invoice '+newInv.id+' created for '+c.name);
+  if(sendAfter){
+    if(newInv.custEmail){sendInvoiceEmail(newInv.id)}else{toast('warning','No email address — invoice created but not sent')}
+  }
+  go('invoices');
+}
+function custNewJob(cid){go('addJob');setTimeout(function(){njSelectCust(cid)},60)}
+function custNewInvoice(cid){window._ni=null;window._niCustId=String(cid);go('createInvoice')}
+function custNewQuote(cid){
+  var c=customers.find(function(x){return String(x.id)===String(cid)});if(!c)return;
+  window._newQuoteCust={name:c.name||'',email:c.email||'',addr:c.addr||'',custId:c.linkedCustomerId||null};
+  showCreateQuoteOverlay();
+}
+function custNewCert(cid){
+  certDashType=certDashType||'domestic';
+  pgCP12New();
+  setTimeout(function(){certWizardSelectCustomer(cid)},60);
 }
 function saveNewCustomer(){
   var n=document.getElementById('nc-name').value;
@@ -8089,16 +8173,74 @@ function pgAddCustomer(){
 }
 
 // ===== CREATE INVOICE =====
+function _niState(){
+  if(!window._ni)window._ni={custId:'',items:[{desc:'',qty:1,unit:''}],vatRate:null,dueDays:14,newCust:false,ncName:'',email:'',phone:'',addr:''};
+  if(window._niCustId){
+    var c=customers.find(function(x){return String(x.id)===String(window._niCustId)});
+    if(c){window._ni.custId=String(c.id);window._ni.email=c.email||'';window._ni.phone=c.phone||'';window._ni.addr=c.addr||'';window._ni.newCust=false}
+    window._niCustId=null;
+  }
+  return window._ni;
+}
+function niPickCust(id){
+  var st=_niState();st.custId=id;
+  var c=customers.find(function(x){return String(x.id)===String(id)});
+  st.email=c?(c.email||''):'';st.phone=c?(c.phone||''):'';st.addr=c?(c.addr||''):'';
+  render();
+}
+function niToggleNewCust(){var st=_niState();st.newCust=!st.newCust;if(st.newCust){st.custId='';st.email='';st.phone='';st.addr=''}render()}
+function _niTotals(){
+  var st=_niState();var sub=0;
+  st.items.forEach(function(it){sub+=(Number(it.qty)||0)*(Number(it.unit)||0)});
+  var rate=S.engineer.vatReg?(st.vatRate||0):0;
+  var vat=Math.round(sub*rate*100)/100;
+  return {sub:Math.round(sub*100)/100,vat:vat,total:Math.round((sub+vat)*100)/100,rate:rate};
+}
+function niRecalc(){
+  var st=_niState();
+  st.items.forEach(function(it,ix){var el=document.getElementById('ni-lt-'+ix);if(el)el.textContent='£'+((Number(it.qty)||0)*(Number(it.unit)||0)).toFixed(2)});
+  var t=_niTotals();var box=document.getElementById('ni-totals');
+  if(box)box.innerHTML='<div class="breakdown-row"><div>Subtotal</div><div>£'+t.sub.toFixed(2)+'</div></div>'+
+    (S.engineer.vatReg?'<div class="breakdown-row"><div>VAT'+(st.vatRate===null?' (choose a rate)':' ('+Math.round(t.rate*100)+'%)')+'</div><div>£'+t.vat.toFixed(2)+'</div></div>':'')+
+    '<div class="breakdown-row total"><div>TOTAL</div><div>£'+t.total.toFixed(2)+'</div></div>';
+}
 function pgCreateInvoice(){
-  return '<button class="back-btn" onclick="go(\'invoices\')">← Back to Invoices</button>'+
-    '<div class="main-header"><h1>Create Invoice</h1><p>Create a new invoice manually. (Jobs auto-create invoices too.)</p></div>'+
-    '<div class="card" style="max-width:640px">'+
-    '<div class="field"><div class="label">Customer Name</div><select id="ni-cust" class="input">'+
-    customers.map(function(c){return '<option value="'+escAttr(c.name)+'">'+esc(c.name)+'</option>'}).join('')+'</select></div>'+
-    '<div class="field"><div class="label">Description</div><input id="ni-desc" class="input" placeholder="e.g. Annual boiler service"></div>'+
-    '<div class="field"><div class="label">Amount (£ ex. VAT)</div><input id="ni-amt" class="input" type="number" placeholder="85"></div>'+
-    '<div class="card mt-16" style="background:var(--bg)"><div class="text-sm text-muted">VAT (20%) will be calculated automatically. Invoice will be created as <strong>unpaid</strong> and you can send it to the customer from the invoice detail page.</div></div>'+
-    '<div class="flex gap-12 mt-16"><button class="btn btn-primary btn-lg" onclick="saveNewInvoice()">✓ Create Invoice</button><button class="btn btn-secondary btn-lg" onclick="go(\'invoices\')">Cancel</button></div></div>';
+  var st=_niState();var vr=!!S.engineer.vatReg;
+  var opts='<option value="">— Choose customer —</option>'+customers.map(function(c){return '<option value="'+escAttr(String(c.id))+'"'+(String(c.id)===String(st.custId)?' selected':'')+'>'+esc(c.name)+(c.isCompany?' (company)':'')+'</option>'}).join('');
+  var h='<button class="back-btn" onclick="window._ni=null;go(\'invoices\')">← Back to Invoices</button>'+
+    '<div class="main-header"><h1>Create Invoice</h1><p>Completed jobs create invoices automatically — use this for anything else.</p></div>'+
+    '<div class="card" style="max-width:780px">';
+  h+='<div class="field"><div class="label">Customer *</div><div class="flex gap-8">'+
+    (st.newCust?'<input class="input" style="flex:1" id="ni-nc-name" placeholder="New customer full name" value="'+escAttr(st.ncName)+'" oninput="window._ni.ncName=this.value">':
+     '<select id="ni-cust" class="input" style="flex:1" onchange="niPickCust(this.value)">'+opts+'</select>')+
+    '<button class="btn btn-secondary btn-sm" onclick="niToggleNewCust()">'+(st.newCust?'Choose existing':'+ New customer')+'</button></div></div>';
+  h+='<div class="grid-2"><div class="field"><div class="label">Email</div><input class="input" id="ni-email" type="email" value="'+escAttr(st.email)+'" placeholder="For sending the invoice" oninput="window._ni.email=this.value"></div>'+
+    '<div class="field"><div class="label">Phone</div><input class="input" id="ni-phone" value="'+escAttr(st.phone)+'" oninput="window._ni.phone=this.value"></div></div>'+
+    '<div class="field"><div class="label">Address</div><input class="input" id="ni-addr" value="'+escAttr(st.addr)+'" oninput="window._ni.addr=this.value"></div>';
+  h+='<div class="label" style="margin-top:12px">Items</div><div class="table-wrap"><table style="width:100%"><thead><tr><th>Description</th><th style="width:70px">Qty</th><th style="width:110px">Unit £</th><th style="width:90px;text-align:right">Total</th><th style="width:40px"></th></tr></thead><tbody>';
+  st.items.forEach(function(it,ix){
+    h+='<tr><td><input class="input" value="'+escAttr(String(it.desc))+'" placeholder="e.g. Annual boiler service, PRV valve (part)" oninput="window._ni.items['+ix+'].desc=this.value"></td>'+
+      '<td><input class="input" type="number" min="0" step="1" value="'+escAttr(String(it.qty))+'" oninput="window._ni.items['+ix+'].qty=this.value;niRecalc()"></td>'+
+      '<td><input class="input" type="number" min="0" step="0.01" value="'+escAttr(String(it.unit))+'" oninput="window._ni.items['+ix+'].unit=this.value;niRecalc()"></td>'+
+      '<td style="text-align:right" id="ni-lt-'+ix+'">£0.00</td>'+
+      '<td>'+(st.items.length>1?'<button class="btn btn-secondary btn-sm" onclick="window._ni.items.splice('+ix+',1);render()">✕</button>':'')+'</td></tr>';
+  });
+  h+='</tbody></table></div><button class="btn btn-secondary btn-sm mt-8" onclick="window._ni.items.push({desc:\'\',qty:1,unit:\'\'});render()">+ Add line</button>';
+  if(vr){
+    var vopts=[[0.2,'20%'],[0.05,'5%'],[0,'No VAT']];
+    h+='<div class="field" style="margin-top:16px"><div class="label">VAT * <span class="text-sm text-muted">(choose for this invoice)</span></div><div class="flex gap-8">'+
+      vopts.map(function(v){var on=st.vatRate!==null&&Number(st.vatRate)===v[0];return '<button class="btn '+(on?'btn-primary':'btn-secondary')+' btn-sm" onclick="window._ni.vatRate='+v[0]+';render()">'+v[1]+'</button>'}).join('')+'</div></div>';
+  }else{
+    h+='<div class="text-sm text-muted" style="margin-top:16px">Not VAT registered — no VAT added. (Change in Settings → Tax details.)</div>';
+  }
+  h+='<div class="field" style="margin-top:12px"><div class="label">Payment due</div><select class="input" style="max-width:200px" onchange="window._ni.dueDays=parseInt(this.value,10)">'+
+    [7,14,30].map(function(d){return '<option value="'+d+'"'+(st.dueDays===d?' selected':'')+'>'+d+' days</option>'}).join('')+'</select></div>';
+  h+='<div class="breakdown" id="ni-totals" style="max-width:360px;margin-left:auto"></div>';
+  h+='<div class="flex gap-12 mt-16" style="flex-wrap:wrap"><button class="btn btn-primary btn-lg" onclick="saveNewInvoice(false)">✓ Create invoice</button>'+
+    '<button class="btn btn-success btn-lg" onclick="saveNewInvoice(true)">📤 Create &amp; send</button>'+
+    '<button class="btn btn-secondary btn-lg" onclick="window._ni=null;go(\'invoices\')">Cancel</button></div></div>';
+  setTimeout(niRecalc,0);
+  return h;
 }
 
 // ===== VOICE LOG =====
@@ -8126,9 +8268,10 @@ function pgVoice(){
 }
 
 // ===== CUSTOMERS =====
-function getCustInvoices(custName,custId){
+function getCustInvoices(custName,custId,ecid){
   var nameLC=custName?custName.toLowerCase():'';
   return invoices.filter(function(i){
+    if(ecid&&i.ecid)return i.ecid===ecid;
     if(custId&&i.custId&&i.custId===custId)return true;
     if(!nameLC)return false;
     // Exact match on cust field
@@ -8146,7 +8289,7 @@ function getCustInvoices(custName,custId){
 }
 function syncCustomerInvoices(){
   customers.forEach(function(c){
-    var cInvs=getCustInvoices(c.name,c.linkedCustomerId||c.id);
+    var cInvs=getCustInvoices(c.name,c.linkedCustomerId||c.id,c._supaId);
     c.jobs=Math.max(c.jobs||0,cInvs.length);
     c.spent=cInvs.reduce(function(s,i){return s+(i.amt+(i.vat||0))},0);
     if(cInvs.length&&!c.hist.length){
@@ -8156,14 +8299,16 @@ function syncCustomerInvoices(){
     }
   });
 }
-function getCustAllJobs(custName){
+function getCustAllJobs(custName,ecid){
   var jobs=[];
   var nameLC=custName?custName.toLowerCase():'';
   Object.keys(allJobs).forEach(function(d){
     allJobs[d].forEach(function(j){
       var match=false;
+      if(ecid&&j.ecid){match=(j.ecid===ecid)}else{
       if(j.cust&&j.cust.toLowerCase()===nameLC)match=true;
       if(j.company&&j.company.toLowerCase()===nameLC)match=true;
+      }
       if(match){jobs.push({date:d,job:j})}
     });
   });
@@ -8184,23 +8329,29 @@ function pgCustomers(){
   var companyCusts=customers.filter(function(c){return c.isCompany});
   var totalOwed=invoices.filter(function(i){return i.st==='unpaid'}).reduce(function(s,i){return s+(i.amt+i.vat)},0);
   var totalCollected=invoices.filter(function(i){return i.st==='paid'}).reduce(function(s,i){return s+(i.amt+i.vat)},0);
-  var custsWithDebt=customers.filter(function(c){return getCustOwed(c.name,c.linkedCustomerId||c.id)>0}).length;
+  var custsWithDebt=customers.filter(function(c){return getCustOwed(c.name,c.linkedCustomerId||c.id,c._supaId)>0}).length;
   return '<div class="main-header"><div class="flex-between"><div><h1>Customers &amp; Companies</h1><p>'+directCusts.length+' direct · '+companyCusts.length+' companies'+(custsWithDebt?' · <span style="color:var(--warning);font-weight:700">'+custsWithDebt+' with unpaid invoices</span>':'')+'</p></div><div class="flex gap-8"><button class="btn btn-primary" onclick="ncType=\'direct\';go(\'addCustomer\')">+ Add Customer</button><button class="btn btn-secondary" onclick="ncType=\'company\';go(\'addCustomer\')">+ Add Company</button></div></div></div>'+
     '<div class="stats-grid" style="grid-template-columns:repeat(4,1fr)"><div class="card stat-card"><div class="stat-label">Total Customers</div><div class="stat-value">'+(directCusts.length+companyCusts.length)+'</div></div><div class="card stat-card"><div class="stat-label">Collected</div><div class="stat-value" style="color:var(--success)">£'+totalCollected.toFixed(0)+'</div></div><div class="card stat-card"><div class="stat-label">Outstanding</div><div class="stat-value" style="color:'+(totalOwed>0?'var(--warning)':'var(--muted)')+'">£'+totalOwed.toFixed(0)+'</div></div><div class="card stat-card"><div class="stat-label">Collection Rate</div><div class="stat-value" style="color:var(--primary)">'+(totalCollected+totalOwed>0?Math.round(totalCollected/(totalCollected+totalOwed)*100):100)+'%</div></div></div>'+
     '<div class="card mb-24"><div class="card-header"><div class="card-title">🏢 Companies &amp; Insurance ('+companyCusts.length+')</div></div>'+
-    (companyCusts.length?companyCusts.map(function(c){var owed=getCustOwed(c.name,c.linkedCustomerId||c.id);return '<div class="list-item" onclick="go(\'customerDetail\',{cid:\''+c.id+'\'})"><div class="avatar avatar-'+c.c+'">'+c.ini+'</div><div class="list-item-info"><div class="list-item-title">'+esc(c.name)+' <span class="company-tag" style="margin-left:4px">Company</span></div><div class="list-item-sub">'+esc(c.email||'No email')+(c.contactPerson?' · Contact: '+esc(c.contactPerson):'')+'</div></div><div style="text-align:right"><div class="text-sm fw-700">'+c.jobs+' jobs · £'+(c.spent||0).toLocaleString()+'</div>'+(owed>0?'<div class="text-sm" style="color:var(--warning);font-weight:700">£'+owed.toFixed(0)+' owed</div>':'<div class="text-sm" style="color:var(--success)">✓ All paid</div>')+'</div></div>'}).join(''):'<div class="text-center text-muted" style="padding:16px">No companies added yet</div>')+'</div>'+
+    (companyCusts.length?companyCusts.map(function(c){var owed=getCustOwed(c.name,c.linkedCustomerId||c.id,c._supaId);return '<div class="list-item" onclick="go(\'customerDetail\',{cid:\''+c.id+'\'})"><div class="avatar avatar-'+c.c+'">'+c.ini+'</div><div class="list-item-info"><div class="list-item-title">'+esc(c.name)+' <span class="company-tag" style="margin-left:4px">Company</span></div><div class="list-item-sub">'+esc(c.email||'No email')+(c.contactPerson?' · Contact: '+esc(c.contactPerson):'')+'</div></div><div style="text-align:right"><div class="text-sm fw-700">'+c.jobs+' jobs · £'+(c.spent||0).toLocaleString()+'</div>'+(owed>0?'<div class="text-sm" style="color:var(--warning);font-weight:700">£'+owed.toFixed(0)+' owed</div>':'<div class="text-sm" style="color:var(--success)">✓ All paid</div>')+'</div></div>'}).join(''):'<div class="text-center text-muted" style="padding:16px">No companies added yet</div>')+'</div>'+
     '<div class="card"><div class="card-header"><div class="card-title">👤 Direct Customers ('+directCusts.length+')</div></div><div class="search-bar"><span>🔍</span><input placeholder="Search customers..."></div>'+
-    directCusts.map(function(c){var owed=getCustOwed(c.name,c.linkedCustomerId||c.id);var custInvs=getCustInvoices(c.name,c.linkedCustomerId||c.id);var paidC=custInvs.filter(function(i){return i.st==='paid'}).length;var unpaidC=custInvs.filter(function(i){return i.st==='unpaid'}).length;return '<div class="list-item" style="cursor:pointer;transition:all .15s;border-left:3px solid '+(owed>0?'var(--warning)':'transparent')+'" onclick="go(\'customerDetail\',{cid:\''+c.id+'\'})" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'transparent\'"><div class="avatar avatar-'+c.c+'">'+c.ini+'</div><div class="list-item-info"><div class="list-item-title">'+esc(c.name)+(owed>0?' <span class="payment-badge unpaid" style="font-size:10px;padding:2px 8px;margin-left:6px">£'+owed.toFixed(0)+' owed</span>':'')+'</div><div class="list-item-sub">'+esc(c.addr||'No address')+(c.email?' · '+esc(c.email):'')+'</div></div><div style="text-align:right"><div class="text-sm fw-700">'+c.jobs+' job'+(c.jobs!==1?'s':'')+'</div>'+(custInvs.length?'<div style="display:flex;gap:6px;justify-content:flex-end;margin-top:4px">'+(paidC?'<span style="background:#D1FAE5;color:#059669;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px">'+paidC+' paid</span>':'')+(unpaidC?'<span style="background:#FEF3C7;color:#92400E;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px">'+unpaidC+' unpaid</span>':'')+'</div>':'<div class="text-sm text-muted">£'+(c.spent||0).toLocaleString()+' total</div>')+'</div><span style="color:var(--muted);font-size:16px;margin-left:8px">→</span></div>'}).join('')+'</div>';
+    directCusts.map(function(c){var owed=getCustOwed(c.name,c.linkedCustomerId||c.id,c._supaId);var custInvs=getCustInvoices(c.name,c.linkedCustomerId||c.id,c._supaId);var paidC=custInvs.filter(function(i){return i.st==='paid'}).length;var unpaidC=custInvs.filter(function(i){return i.st==='unpaid'}).length;return '<div class="list-item" style="cursor:pointer;transition:all .15s;border-left:3px solid '+(owed>0?'var(--warning)':'transparent')+'" onclick="go(\'customerDetail\',{cid:\''+c.id+'\'})" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'transparent\'"><div class="avatar avatar-'+c.c+'">'+c.ini+'</div><div class="list-item-info"><div class="list-item-title">'+esc(c.name)+(owed>0?' <span class="payment-badge unpaid" style="font-size:10px;padding:2px 8px;margin-left:6px">£'+owed.toFixed(0)+' owed</span>':'')+'</div><div class="list-item-sub">'+esc(c.addr||'No address')+(c.email?' · '+esc(c.email):'')+'</div></div><div style="text-align:right"><div class="text-sm fw-700">'+c.jobs+' job'+(c.jobs!==1?'s':'')+'</div>'+(custInvs.length?'<div style="display:flex;gap:6px;justify-content:flex-end;margin-top:4px">'+(paidC?'<span style="background:#D1FAE5;color:#059669;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px">'+paidC+' paid</span>':'')+(unpaidC?'<span style="background:#FEF3C7;color:#92400E;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px">'+unpaidC+' unpaid</span>':'')+'</div>':'<div class="text-sm text-muted">£'+(c.spent||0).toLocaleString()+' total</div>')+'</div><span style="color:var(--muted);font-size:16px;margin-left:8px">→</span></div>'}).join('')+'</div>';
 }
 function pgCustDetail(){
   var c=S.selCustomer;if(!c)return '';
   var isComp=c.isCompany;
   var tagBadge=isComp?'<span class="company-tag" style="font-size:13px;padding:4px 12px">🏢 Company</span>':'<span class="direct-tag" style="font-size:13px;padding:4px 12px">👤 Direct Customer</span>';
-  var custInvs=getCustInvoices(c.name,c.linkedCustomerId||c.id);
-  var owed=getCustOwed(c.name,c.linkedCustomerId||c.id);var paidTotal=getCustPaid(c.name,c.linkedCustomerId||c.id);
+  var custInvs=getCustInvoices(c.name,c.linkedCustomerId||c.id,c._supaId);
+  var owed=getCustOwed(c.name,c.linkedCustomerId||c.id,c._supaId);var paidTotal=getCustPaid(c.name,c.linkedCustomerId||c.id,c._supaId);
   var unpaidInvs=custInvs.filter(function(i){return i.st==='unpaid'});
   var paidInvs=custInvs.filter(function(i){return i.st==='paid'});
   return '<button class="back-btn" onclick="go(\'customers\')">← Back</button><div class="main-header"><div class="flex-between"><div><h1>'+esc(c.name)+'</h1><p>'+(isComp?(c.contactPerson?'Contact: '+esc(c.contactPerson):'Company account'):esc(c.addr||''))+'</p></div><div class="flex gap-8">'+tagBadge+(owed>0?'<button class="btn btn-warning btn-sm" onclick="unpaidInvs=invoices.filter(function(i){return i.cust===\''+c.name.replace(/'/g,"\\'")+'\'&&i.st===\'unpaid\'});if(unpaidInvs.length){sendChase(unpaidInvs[0].id)}">📧 Chase Payment</button>':'')+(isComp?'':'<button class="btn btn-primary btn-sm" onclick="sendCustomerServiceReminder(\''+escAttr(String(c.id))+'\')">Send Reminder</button>')+'<button class="btn btn-secondary btn-sm">Edit</button></div></div></div>'+
+    '<div class="flex gap-8 mb-16" style="flex-wrap:wrap">'+
+      '<button class="btn btn-primary btn-sm" onclick="custNewJob(\''+escAttr(String(c.id))+'\')">+ Job</button>'+
+      '<button class="btn btn-primary btn-sm" onclick="custNewInvoice(\''+escAttr(String(c.id))+'\')">+ Invoice</button>'+
+      '<button class="btn btn-primary btn-sm" onclick="custNewQuote(\''+escAttr(String(c.id))+'\')">+ Quote</button>'+
+      '<button class="btn btn-primary btn-sm" onclick="custNewCert(\''+escAttr(String(c.id))+'\')">+ Certificate</button>'+
+    '</div>'+
     '<div class="stats-grid" style="grid-template-columns:repeat(5,1fr)"><div class="card stat-card" style="cursor:pointer;border:2px solid transparent;transition:border .15s" onclick="var el=document.getElementById(\'custJobsSection\');if(el)el.scrollIntoView({behavior:\'smooth\'})" onmouseover="this.style.borderColor=\'var(--primary)\'" onmouseout="this.style.borderColor=\'transparent\'"><div class="stat-label">Total Jobs</div><div class="stat-value">'+c.jobs+'</div><div class="text-sm text-muted mt-8" style="font-size:11px">Click to view all</div></div><div class="card stat-card" style="cursor:pointer;border:2px solid transparent;transition:border .15s" onclick="var el=document.getElementById(\'custJobsSection\');if(el)el.scrollIntoView({behavior:\'smooth\'})" onmouseover="this.style.borderColor=\'var(--success)\'" onmouseout="this.style.borderColor=\'transparent\'"><div class="stat-label">'+(isComp?'Revenue':'Total Billed')+'</div><div class="stat-value">£'+(c.spent||0).toLocaleString()+'</div><div class="text-sm text-muted mt-8" style="font-size:11px">Click to view breakdown</div></div><div class="card stat-card"><div class="stat-label">Collected</div><div class="stat-value" style="color:var(--success)">£'+paidTotal.toFixed(0)+'</div></div><div class="card stat-card"><div class="stat-label">Outstanding</div><div class="stat-value" style="color:'+(owed>0?'var(--warning)':'var(--muted)')+'">£'+owed.toFixed(0)+'</div>'+(owed>0?'<div class="stat-change down">'+unpaidInvs.length+' unpaid</div>':'<div class="stat-change up">All clear</div>')+'</div><div class="card stat-card"><div class="stat-label">'+(isComp?'Status':'Next Due')+'</div><div class="stat-value" style="font-size:18px">'+(c.next||'TBD')+'</div></div></div>'+
     // Unpaid invoices alert
     (unpaidInvs.length?'<div class="card mb-24" style="background:var(--warning-light);border:2px solid var(--warning)"><div class="card-header"><div style="display:flex;align-items:center;gap:8px"><span style="font-size:20px">⚠️</span><div class="card-title" style="color:#92400E">Unpaid Invoices ('+unpaidInvs.length+')</div></div><div class="fw-800" style="color:#92400E;font-size:18px">£'+owed.toFixed(2)+'</div></div>'+
@@ -8235,7 +8386,7 @@ function pgCustDetail(){
     renderCustJobs(c,custInvs);
 }
 function renderCustJobs(c,custInvs){
-  var allCustJobs=getCustAllJobs(c.name);
+  var allCustJobs=getCustAllJobs(c.name,c._supaId);
   var totalRevenue=allCustJobs.reduce(function(s,j){return s+(j.histAmt||j.job.amt||0)},0);
   var totalExpenses=allCustJobs.reduce(function(s,j){return s+(j.job.expenses?j.job.expenses.reduce(function(ss,e){return ss+e.amt},0):0)},0);
   if(!allCustJobs.length&&!custInvs.length)return '';
@@ -10081,7 +10232,8 @@ function saveJobToSupabase(job, dateKey) {
     p_marketplace_job_id: mkId,
     p_house_number: job.houseNumber || job._houseNumber || '',
     p_customer_id: job._marketCustId || null,
-    p_parts: JSON.stringify(job.parts || [])
+    p_parts: JSON.stringify(job.parts || []),
+    p_engineer_customer_id: job.ecid || null
   };
   _saveJobRetry(params,job,dateKey,0);
 }
@@ -10151,10 +10303,17 @@ function saveInvoiceToSupabase(inv) {
     p_vat: inv.vat || 0,
     p_total: (inv.amt || 0) + (inv.vat || 0),
     p_chase_count: inv.chaseCount || 0,
-    p_engineer_name: S.engineer.business || S.engineer.name || ''
+    p_engineer_name: S.engineer.business || S.engineer.name || '',
+    p_items: (inv.items && inv.items.length) ? inv.items : null,
+    p_vat_rate: (inv.vatRate === null || inv.vatRate === undefined) ? null : inv.vatRate,
+    p_engineer_customer_id: inv.ecid || null,
+    p_due_date: inv.dueDateKey || null,
+    p_meta: {addr: inv.addr || '', custPhone: inv.custPhone || '', type: inv.type || '', company: inv.company || '', compRef: inv.compRef || '', vatNumber: inv.vatNumber || ''},
+    p_status: inv.st === 'paid' ? 'paid' : null,
+    p_paid_method: inv.st === 'paid' ? (inv.paidMethod || null) : null
   }).then(function(res) {
-    if (res.error) { console.log('Invoice RPC error:', res.error.message); }
-    else { console.log('Invoice saved via RPC:', res.data); scheduleCustomerReload(); }
+    if (res.error) { console.log('Invoice RPC error:', res.error.message); toast('error','Invoice not saved to cloud: '+res.error.message); }
+    else { console.log('Invoice saved via RPC:', res.data); if (res.data && res.data.invoice_id) { inv._supaId = res.data.invoice_id; } scheduleCustomerReload(); }
   });
 }
 

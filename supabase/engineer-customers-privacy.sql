@@ -85,3 +85,10 @@ create policy "Engineers read customers they serve" on public.customers
 --  * ensure_engineer_customer(): add customer to engineer's list if missing (match email, else name; fills gaps only)
 --  * AFTER INSERT triggers on jobs, invoices, quotes, cp12_certificates call it (errors never block the save)
 --  * one-off backfill from marketplace_jobs, jobs, quotes, invoices, certificates
+
+-- 15 Nov 2026 (0.2f, applied live): migration "customer_links_invoice_items_vat"
+--  * engineer_customer_id on jobs, invoices, quotes (+ backfill: all existing rows linked)
+--  * invoices.items jsonb, invoices.vat_rate, invoices.meta jsonb (address, phone, company, vat number)
+--  * auto-customer trigger now BEFORE INSERT and stores the link on the row
+--  * save_engineer_job(+p_engineer_customer_id), send_invoice(+items, vat_rate, link, due date, meta, paid status/method)
+--  * already-paid callout invoices now saved as paid (previously saved as unpaid)
