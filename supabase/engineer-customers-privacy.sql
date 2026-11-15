@@ -135,3 +135,34 @@ revoke execute on function public.bump_moti_import_usage(uuid) from public, anon
 --    (only where the value is unchanged) and marks the batch 'undone'. Granted to authenticated, revoked from anon.
 -- Tested in a rolled-back transaction: removes imported + auto-created rows, keeps a job with a later invoice,
 -- reverts a filled phone, blocks other users.
+
+-- ===== Phase 2A B1 (2026-11-15): the books =====
+-- Migration "books_b1_sources_vat_settings_and_payment_lockdown" (applied live):
+--  * SECURITY: dropped policy pt_service_all on payment_transactions (it let EVERY signed-in user read and change all
+--    payment rows); revoked insert/update/delete/truncate from authenticated + anon. Engineers/customers keep read of their own.
+--  * created_via text default 'app' (app|moti|import|photo|system|marketplace) on invoices, jobs, quotes, general_expenses,
+--    job_expenses, mileage_log; backfilled import / marketplace.
+--  * vat, vat_rate on general_expenses and job_expenses.
+--  * engineers.vehicle_method (mileage_allowance|actual_costs, null = not chosen -> mileage allowance),
+--    engineers.accounting_basis (cash default | accruals).
+--  * sa103_box(category) -> SA103F expense box 17-30.
+-- Migration "books_b1_get_books_and_complete_job_v2":
+--  * tax_year_start(date).
+--  * get_books(p_from, p_to, p_lines default true, p_include_imported default true) -> jsonb {period, engineer, summary, lines}
+--    owner-only (auth.uid()); income when paid (cash) or invoiced (accruals); marketplace payments without a paid invoice;
+--    money owed; general + all job expenses (billable included); platform fees (box 30); mileage with 45p/25p per tax year;
+--    fuel/van not claimed under mileage allowance; summary incl. SA103F boxes. Tested in a rolled-back transaction.
+--  * complete_job(p_job_id, p_vat_rate default null, p_via default 'app'): VAT is the engineer's choice (required if
+--    VAT-registered, 0/5/20), never invoices / logs mileage / sets reminder twice, tags created_via. Old complete_job(uuid) dropped.
+
+-- ===== Phase 2 (2026-11-15): photos + Moti activity =====
+-- Migration "phase2_p1_activity_photos" (applied live):
+--  * moti_activity (engineer_id, at, kind proposed|approved|declined|done|failed, tool, summary, record_table, record_id,
+--    amount, source chat|photo|end_of_day|import, detail) — engineers read own; insert/update/delete revoked (server writes).
+--  * job_photos (engineer_id, job_id, storage_bucket job-photos|receipts, storage_path, caption, kind, created_via) — owner RLS.
+--  * storage.objects policies: engineers insert/select/delete only in job-photos & receipts under folder <their uid>/.
+--  * boiler_passports.gc_number, fuel_type, output_kw; jobs.notes.
+-- Migration "phase2_p1_log_import_activity": log_import_activity(batch) — owner only, logs a finished import once.
+-- Tested (rolled back): own photos only, can't write others' photos or the activity log, storage folder enforced,
+-- import logged once, can't read others' activity.
+-- NOTE (open question for the owner): boiler_passports policies let ANY engineer read/update ANY passport (addresses).

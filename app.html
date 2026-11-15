@@ -520,6 +520,8 @@ function loadUserProfile(role) {
         S.engineer.area = res.data.area || S.engineer.area;
         S.engineer.vatReg = res.data.vat_registered || false;
         S.engineer.vatNumber = res.data.vat_number || '';
+        S.engineer.vehicleMethod = res.data.vehicle_method || '';
+        S.engineer.accountingBasis = res.data.accounting_basis || 'cash';
         S.engineer.idCard = res.data.id_card_number || S.engineer.idCard;
         S.engineer.standardRate = res.data.standard_rate || CALLOUT_STANDARD;
         S.engineer.emergencyRate = res.data.emergency_rate || CALLOUT_OOH;
@@ -1565,20 +1567,20 @@ var companies=[
   {name:'AXA Insurance',short:'AXA',ref:'AX',color:'#0284C7'},
   {name:'Aviva Home',short:'Aviva',ref:'AV',color:'#CA8A04'}
 ];
-// HMRC SA103 expense categories — each maps to a Self Assessment box
+// HMRC expense categories — each maps to a Self Assessment (SA103F) box; keep in step with BOOKS_CAT_BOX and sa103_box() in the database
 var HMRC_CATS=[
-  {id:'cogs',label:'Parts & Materials',icon:'🔧',sa103:'Box 10 — Cost of goods',desc:'Parts, fittings, materials used on jobs'},
-  {id:'fuel',label:'Fuel',icon:'⛽',sa103:'Box 20 — Vehicle expenses',desc:'Diesel, petrol for work van'},
-  {id:'van',label:'Van Costs',icon:'🚐',sa103:'Box 20 — Vehicle expenses',desc:'MOT, servicing, repairs, tyres, insurance'},
-  {id:'tools',label:'Tools & Equipment',icon:'🛠️',sa103:'Box 15 — Capital allowances',desc:'New tools, equipment, PPE under £1000'},
-  {id:'insurance',label:'Insurance',icon:'🛡️',sa103:'Box 17 — Insurance',desc:'Public liability, professional indemnity'},
-  {id:'phone',label:'Phone & Internet',icon:'📱',sa103:'Box 18 — Office costs',desc:'Phone contract, broadband, apps'},
-  {id:'clothing',label:'Workwear & PPE',icon:'👷',sa103:'Box 12 — Construction industry',desc:'Boots, hi-vis, uniforms, PPE'},
-  {id:'training',label:'Training & CPD',icon:'📚',sa103:'Box 16 — Professional fees',desc:'Gas Safe renewal, courses, ACS'},
-  {id:'office',label:'Office & Admin',icon:'📋',sa103:'Box 18 — Office costs',desc:'Stationery, printing, software, post'},
-  {id:'subscriptions',label:'Subscriptions',icon:'💻',sa103:'Box 18 — Office costs',desc:'HomeLinq, accounting software, trade memberships'},
-  {id:'professional',label:'Professional Fees',icon:'⚖️',sa103:'Box 16 — Professional fees',desc:'Accountant, legal, Gas Safe registration'},
-  {id:'other',label:'Other',icon:'📦',sa103:'Box 19 — Other expenses',desc:'Anything else allowable'}
+  {id:'cogs',label:'Parts & Materials',icon:'🔧',sa103:'Box 17 — Cost of goods',desc:'Parts, fittings, materials used on jobs'},
+  {id:'fuel',label:'Fuel',icon:'⛽',sa103:'Box 20 — Car, van & travel',desc:'Diesel, petrol for work van'},
+  {id:'van',label:'Van Costs',icon:'🚐',sa103:'Box 20 — Car, van & travel',desc:'MOT, servicing, repairs, tyres, insurance'},
+  {id:'tools',label:'Tools & Equipment',icon:'🛠️',sa103:'Box 30 — Other expenses',desc:'New tools, equipment, PPE under £1000'},
+  {id:'insurance',label:'Insurance',icon:'🛡️',sa103:'Box 21 — Rent, rates, power & insurance',desc:'Public liability, professional indemnity'},
+  {id:'phone',label:'Phone & Internet',icon:'📱',sa103:'Box 23 — Phone & office',desc:'Phone contract, broadband, apps'},
+  {id:'clothing',label:'Workwear & PPE',icon:'👷',sa103:'Box 30 — Other expenses',desc:'Boots, hi-vis, uniforms, PPE'},
+  {id:'training',label:'Training & CPD',icon:'📚',sa103:'Box 30 — Other expenses',desc:'Gas Safe renewal, courses, ACS'},
+  {id:'office',label:'Office & Admin',icon:'📋',sa103:'Box 23 — Phone & office',desc:'Stationery, printing, software, post'},
+  {id:'subscriptions',label:'Subscriptions',icon:'💻',sa103:'Box 23 — Phone & office',desc:'HomeLinq, accounting software, trade memberships'},
+  {id:'professional',label:'Professional Fees',icon:'⚖️',sa103:'Box 28 — Accountancy & professional',desc:'Accountant, legal, Gas Safe registration'},
+  {id:'other',label:'Other',icon:'📦',sa103:'Box 30 — Other expenses',desc:'Anything else allowable'}
 ];
 var generalExpenses=[];
 // Daily notepad — keyed by date
@@ -2122,23 +2124,10 @@ function getAllJobsFlat(){var a=[];Object.keys(allJobs).forEach(function(d){allJ
 var expenses=[];
 var mileageLog=[];
 
-// Tax year data (2025/26: Apr 6 2025 - Apr 5 2026)
-var tax={grossIncome:0,totalExpenses:0,totalMiles:0,mileageRate45:0.45,mileageRate25:0.25,personalAllowance:12570,basicRate:0.20,higherThreshold:50270,class2Weekly:3.45,class4Lower:12570,class4Rate:0.06};
 
-function calcTax(){
-  var mileageDed=(Math.min(tax.totalMiles,10000)*tax.mileageRate45)+(Math.max(tax.totalMiles-10000,0)*tax.mileageRate25);
-  var taxableProfit=tax.grossIncome-tax.totalExpenses-mileageDed;
-  var taxableIncome=Math.max(taxableProfit-tax.personalAllowance,0);
-  var incomeTax=taxableIncome*tax.basicRate;
-  // Class 2 NI only applies if you have trading income
-  var class2=tax.grossIncome>0?tax.class2Weekly*52:0;
-  var class4=Math.max(taxableProfit-tax.class4Lower,0)*tax.class4Rate;
-  var totalTax=incomeTax+class2+class4;
-  return {mileageDed:mileageDed,taxableProfit:taxableProfit,taxableIncome:taxableIncome,incomeTax:incomeTax,class2:class2,class4:class4,totalTax:totalTax};
-}
 
 // ===== NAV =====
-function go(s,d){S.prev=S.screen;S.screen=s;if(s==='login'){S.role='engineer';custMenuOpen=false;custLoginMode='choose'}if(d){if(d.cid)S.selCustomer=customers.find(function(c){return c.id===d.cid});if(d.iid)S.selInvoice=invoices.find(function(i){return i.id===d.iid});if(d.eid)selEngId=d.eid}window.scrollTo(0,0);render()}
+function go(s,d){S.prev=S.screen;S.screen=s;if(s==='accounting'||s==='taxDash'||s==='mileage'){books.key=''}if(s==='login'){S.role='engineer';custMenuOpen=false;custLoginMode='choose'}if(d){if(d.cid)S.selCustomer=customers.find(function(c){return c.id===d.cid});if(d.iid)S.selInvoice=invoices.find(function(i){return i.id===d.iid});if(d.eid)selEngId=d.eid}window.scrollTo(0,0);render()}
 function goBack(){if(S.prev){S.screen=S.prev;S.prev=null;render()}}
 function toast(t,m){var e=document.getElementById('toast');e.className='toast show '+t;e.innerHTML=(t==='success'?'✓ ':'! ')+esc(m);setTimeout(function(){e.className='toast'},2500)}
 function startRec(){S.voiceStep='recording';render();setTimeout(function(){S.voiceStep='processing';render()},3000);setTimeout(function(){S.voiceStep='parsed';render()},5000)}
@@ -3138,17 +3127,15 @@ function finalizeCompletion(id,completionType,labourCharge,partsCost,diagnosis){
     sendCompletionEmails(j,completionType);
   }
   // Record expenses in books
-  j.expenses.forEach(function(e){var hcat=HMRC_CATS.find(function(c){return c.id===e.cat});expenses.push({id:expenses.length+1,date:fmtDate(jobDate),desc:e.desc+' ('+j.cust+')',vendor:e.billable?'Billable — '+j.cust:'Job expense',amt:e.amt,cat:hcat?hcat.label:'Parts & Materials',sa103:hcat?hcat.sa103:'Box 10 — Cost of goods',hmrcCat:e.cat||'cogs',vat:engVatReg?Math.round(e.amt*0.2*100)/100:0})});
+  // (Expenses, income and mileage reach the books from the database — see get_books)
   // Revenue
   var netRevenue=isMarketplace?(invAmt-platformFee):invAmt;
-  tax.grossIncome+=netRevenue;
-  tax.totalExpenses+=nonBillableTotal;
   // === MILEAGE ===
   var roundTripMiles=j.mi*2;
   var newMileage={date:fmtDate(jobDate),cust:j.cust,from:'Home ('+S.engineer.postcode+')',to:j.addr,mi:j.mi,ret:j.mi};
   mileageLog.unshift(newMileage);
-  tax.totalMiles+=roundTripMiles;
   if(currentUser)saveMileageToSupabase(newMileage);
+  setTimeout(booksRefresh,1500);
   // === CUSTOMER record ===
   var custRecord=customers.find(function(c){return c.name===j.cust});
   if(custRecord){
@@ -3703,7 +3690,10 @@ function addJobExpense(jobId){
   var j=findJob(jobId);if(!j)return;
   var catId=catEl?catEl.value:'cogs';
   var hcat=HMRC_CATS.find(function(c){return c.id===catId})||HMRC_CATS[0];
-  var expObj={id:nextExpId++,desc:desc,amt:amt,billable:true,receipt:false,cat:catId,catLabel:hcat.label};
+  var vatEl=document.getElementById('jexp-vat-'+jobId);var vatAmt=S.engineer.vatReg&&vatEl?Math.max(0,parseFloat(vatEl.value)||0):0;
+  if(vatAmt>amt){toast('error','VAT can\'t be more than the amount');return}
+  if(vatEl)vatEl.value='';
+  var expObj={id:nextExpId++,desc:desc,amt:amt,vat:vatAmt,billable:true,receipt:false,cat:catId,catLabel:hcat.label};
   j.expenses.push(expObj);
   descEl.value='';amtEl.value='';
   toast('success',hcat.icon+' £'+amt.toFixed(2)+' added → '+hcat.sa103);
@@ -3713,11 +3703,11 @@ function addJobExpense(jobId){
     var jobIdStr=String(j.id||'');
     if(jobIdStr.length>8&&jobIdStr.indexOf('-')>-1){
       sb.from('job_expenses').insert({
-        job_id:jobIdStr, description:desc, amount:amt, billable:true,
+        job_id:jobIdStr, description:desc, amount:amt, vat:vatAmt, billable:true,
         hmrc_category:catId, sa103_box:hcat.sa103
       }).select('id').single().then(function(res){
         if(res.error){console.log('Save job expense error:',res.error.message);toast('error','Expense not saved to cloud: '+res.error.message)}
-        else{expObj._supaId=res.data.id;console.log('Job expense saved to Supabase')}
+        else{expObj._supaId=res.data.id;console.log('Job expense saved to Supabase');setTimeout(booksRefresh,800)}
       });
     }else{
       toast('warning','Expense kept on this device until the job finishes syncing');
@@ -3757,6 +3747,7 @@ function showGenExpModal(){
     '<div class="field"><div class="label">What did you buy?</div><input id="ge-desc" class="input" placeholder="e.g. Diesel fuel — Shell Didsbury"></div>'+
     '<div class="grid-2"><div class="field"><div class="label">Amount (£)</div><input id="ge-amt" class="input" type="number" step="0.01" placeholder="65.40"></div>'+
     '<div class="field"><div class="label">Date</div><input id="ge-date" class="input" type="date" value="'+S.selectedDate+'"></div></div>'+
+    (S.engineer.vatReg?'<div class="field"><div class="label">VAT included (£) <span class="text-sm text-muted">— from the receipt, if any</span></div><input id="ge-vat" class="input" type="number" step="0.01" placeholder="0.00"></div>':'')+
     '<div class="field"><div class="label">Receipt</div><div style="display:flex;align-items:center;gap:12px"><button id="ge-receipt-btn" class="btn btn-secondary btn-sm" onclick="this.classList.toggle(\'active\');this.dataset.has=this.dataset.has===\'1\'?\'0\':\'1\';this.innerHTML=this.dataset.has===\'1\'?\'📎 Receipt attached ✓\':\'📷 Snap receipt photo\'">📷 Snap receipt photo</button><span class="text-sm text-muted">HMRC may request receipts over £50</span></div></div>'+
     '<div class="flex gap-12 mt-16"><button class="btn btn-primary btn-lg" onclick="saveGenExp()">✓ Add to Books</button><button class="btn btn-secondary btn-lg" onclick="document.getElementById(\'genExpModal\').remove()">Cancel</button></div></div></div>';
   document.body.appendChild(overlay);
@@ -3784,14 +3775,14 @@ function saveGenExp(){
   var hasReceipt=document.getElementById('ge-receipt-btn').dataset.has==='1';
   if(!desc){toast('error','Please describe the expense');return}
   if(amt<=0){toast('error','Enter an amount');return}
-  var newGenExp={id:nextGenExpId++,date:expDate,desc:desc,amt:amt,cat:catId,catLabel:cat.label,sa103:cat.sa103,receipt:hasReceipt};
+  var vatEl=document.getElementById('ge-vat');var vatAmt=S.engineer.vatReg&&vatEl?Math.max(0,parseFloat(vatEl.value)||0):0;
+  if(vatAmt>amt){toast('error','VAT can\'t be more than the amount');return}
+  var newGenExp={id:nextGenExpId++,date:expDate,desc:desc,amt:amt,vat:vatAmt,cat:catId,catLabel:cat.label,sa103:cat.sa103,receipt:hasReceipt};
   generalExpenses.unshift(newGenExp);
-  expenses.push({id:expenses.length+1,date:fmtDate(expDate),desc:desc,vendor:'General expense',amt:amt,cat:cat.label,sa103:cat.sa103,vat:Math.round(amt*0.2*100)/100});
-  tax.totalExpenses+=amt;
   // === SUPABASE: Save general expense ===
   saveExpenseToSupabase(newGenExp);
   document.getElementById('genExpModal').remove();
-  toast('success',cat.icon+' £'+amt.toFixed(2)+' added → '+cat.sa103);render();
+  toast('success',cat.icon+' £'+amt.toFixed(2)+' added → '+cat.sa103);render();setTimeout(booksRefresh,1500);
 }
 // ===== DAILY NOTEPAD =====
 function addNote(){
@@ -3889,10 +3880,11 @@ function saveEditJob(){
     var linkedInv=invoices.find(function(i){return i.jobNum===j.jobNum});
     if(linkedInv){
       var billableExp=j.expenses.filter(function(e){return e.billable}).reduce(function(s,e){return s+e.amt},0);
+      var _oldRate=linkedInv.amt?(Number(linkedInv.vat)||0)/linkedInv.amt:0;_oldRate=Math.abs(_oldRate-0.2)<0.01?0.2:(Math.abs(_oldRate-0.05)<0.01?0.05:0);
       linkedInv.amt=j.amt+billableExp;
       linkedInv.cust=j.cust;linkedInv.custEmail=j.custEmail;
       linkedInv.desc=j.job;
-      linkedInv.vat=S.engineer.vatReg?Math.round(linkedInv.amt*0.2*100)/100:0;
+      linkedInv.vat=S.engineer.vatReg?Math.round(linkedInv.amt*_oldRate*100)/100:0;
       saveInvoiceToSupabase(linkedInv);
     }
   }
@@ -6013,52 +6005,17 @@ function processAccountMessage(msg){
     return [resp];
   }
 
-  // === EXPENSES ===
-  if(q.indexOf('expense')!==-1||q.indexOf('spending')!==-1||q.indexOf('spent')!==-1||q.indexOf('cost')!==-1){
-    var totalExp=0;expenses.forEach(function(e){totalExp+=(e.amount||0)});
-    var totalGenExp=0;generalExpenses.forEach(function(e){totalGenExp+=(e.amount||0)});
-    var allExp=totalExp+totalGenExp;
-    var resp='💸 Expense summary:\n\n';
-    resp+='<strong>Job expenses:</strong> £'+totalExp.toFixed(2)+' ('+expenses.length+' entries)\n';
-    resp+='<strong>General expenses:</strong> £'+totalGenExp.toFixed(2)+' ('+generalExpenses.length+' entries)\n';
-    resp+='<strong>Total:</strong> £'+allExp.toFixed(2)+'\n';
-    if(expenses.length>0){
-      var byCat={};
-      expenses.forEach(function(e){
-        var cat=e.category||'other';
-        if(!byCat[cat])byCat[cat]=0;
-        byCat[cat]+=(e.amount||0);
-      });
-      resp+='\n<strong>By category:</strong>\n';
-      Object.keys(byCat).forEach(function(c){
-        var catInfo=HMRC_CATS.find(function(h){return h.id===c});
-        resp+=(catInfo?catInfo.icon+' '+catInfo.label:'📦 '+c)+': £'+byCat[c].toFixed(2)+'\n';
-      });
-    }
-    return [resp];
-  }
-
-  // === TAX ===
-  if(q.indexOf('tax')!==-1||q.indexOf('hmrc')!==-1||q.indexOf('self assessment')!==-1||q.indexOf('sa103')!==-1){
-    calcTax();
-    var taxData=calcTax();
-    var resp='🧾 Tax estimate (based on current data):\n\n';
-    resp+='<strong>Gross income:</strong> £'+tax.grossIncome.toFixed(2)+'\n';
-    resp+='<strong>Total expenses:</strong> £'+tax.totalExpenses.toFixed(2)+'\n';
-    resp+='<strong>Mileage:</strong> '+tax.totalMiles+' miles\n\n';
-    resp+='Head to the <strong>Tax Dashboard</strong> for the full SA103 breakdown. Just click Tax in the sidebar.';
-    return [resp];
-  }
-
-  // === MILEAGE ===
-  if(q.indexOf('mile')!==-1||q.indexOf('mileage')!==-1||q.indexOf('driv')!==-1){
-    var totalMiles=0;mileageLog.forEach(function(m){totalMiles+=(m.miles||0)});
-    var mileageDed=(Math.min(totalMiles,10000)*0.45)+(Math.max(totalMiles-10000,0)*0.25);
-    var resp='🚐 Mileage summary:\n\n';
-    resp+='<strong>Total miles logged:</strong> '+totalMiles+'\n';
-    resp+='<strong>Entries:</strong> '+mileageLog.length+'\n';
-    resp+='<strong>Tax deduction:</strong> £'+mileageDed.toFixed(2)+'\n';
-    resp+='\n(First 10,000 miles at 45p, remainder at 25p)';
+  // === EXPENSES / TAX / MILEAGE: from the books (this tax year) ===
+  if(q.indexOf('expense')!==-1||q.indexOf('spending')!==-1||q.indexOf('spent')!==-1||q.indexOf('cost')!==-1||q.indexOf('tax')!==-1||q.indexOf('hmrc')!==-1||q.indexOf('self assessment')!==-1||q.indexOf('sa103')!==-1||q.indexOf('mile')!==-1||q.indexOf('driv')!==-1){
+    booksLoadYtd();var ys=books.ytd&&books.ytd.summary;
+    if(!ys)return ['I\'m fetching your books for this tax year — ask me again in a moment, or open <strong>Accounting</strong> in the sidebar.'];
+    var est=booksTaxEstimate(ys.net_profit,booksTyStartYear());
+    var resp='📒 Tax year '+booksTyName(booksTyStartYear())+' so far:\n\n';
+    resp+='<strong>Income received:</strong> '+_wizGBP(ys.turnover)+'\n';
+    resp+='<strong>Expenses claimed:</strong> '+_wizGBP(ys.expenses_claimed)+' (incl. mileage '+_wizGBP(ys.mileage_allowance)+' for '+ys.business_miles+' miles)\n';
+    resp+='<strong>Net profit:</strong> '+_wizGBP(ys.net_profit)+'\n';
+    resp+='<strong>Estimated tax:</strong> '+_wizGBP(est.total)+' (Income Tax '+_wizGBP(est.incomeTax)+' + Class 4 NI '+_wizGBP(est.class4)+')\n\n';
+    resp+='See <strong>Accounting</strong> for every entry and the Excel download for your accountant. This is an estimate — HomeLinq doesn\'t file with HMRC.';
     return [resp];
   }
 
@@ -7476,7 +7433,7 @@ function page(){
       default:return pgCustHome();
     }
   }
-  switch(S.screen){case'onboarding':return pgOnboarding();case'dashboard':return pgDash();case'jobsheet':return pgJobSheet();case'addJob':return pgAddJob();case'editJob':return pgEditJob();case'voiceLog':return pgVoice();case'cp12':return pgCP12();case'boilerLookup':return pgBoilerLookup();case'faultCodes':return pgFaultCodes();case'customers':return pgCustomers();case'addCustomer':return pgAddCustomer();case'customerDetail':return pgCustDetail();case'invoices':return pgInvoices();case'createInvoice':return pgCreateInvoice();case'invoiceDetail':return pgInvDetail();case'quotes':return pgEngQuotes();case'accounting':return pgAccounting();case'mileage':return pgMileage();case'taxDash':return pgTax();case'reminders':return pgReminders();case'reviews':return pgReviews();case'messages':return pgMessages();case'settings':return pgSettings();default:return pgDash()}
+  switch(S.screen){case'onboarding':return pgOnboarding();case'dashboard':return pgDash();case'jobsheet':return pgJobSheet();case'addJob':return pgAddJob();case'editJob':return pgEditJob();case'voiceLog':return pgVoice();case'cp12':return pgCP12();case'boilerLookup':return pgBoilerLookup();case'faultCodes':return pgFaultCodes();case'customers':return pgCustomers();case'addCustomer':return pgAddCustomer();case'customerDetail':return pgCustDetail();case'invoices':return pgInvoices();case'createInvoice':return pgCreateInvoice();case'invoiceDetail':return pgInvDetail();case'quotes':return pgEngQuotes();case'accounting':return pgAccounting();case'mileage':return pgMileage();case'taxDash':return pgTax();case'motiActivity':return pgMotiActivity();case'reminders':return pgReminders();case'reviews':return pgReviews();case'messages':return pgMessages();case'settings':return pgSettings();default:return pgDash()}
 }
 
 function pgLogin(){
@@ -7501,6 +7458,7 @@ function autoExpandNav(){
   if(workScreens.indexOf(S.screen)!==-1)navSections.work=true;
   if(accScreens.indexOf(S.screen)!==-1)navSections.accounts=true;
   if(autoScreens.indexOf(S.screen)!==-1)navSections.automation=true;
+  if(S.screen==='motiActivity')navSections.moti=true;
 }
 function navSection(key,label,icon,items,badge){
   autoExpandNav();
@@ -7522,6 +7480,7 @@ function sidebar(){
     navSection('work','Work','🔧',workItems,workBadge||null)+
     navSection('accounts','Accounts','💰',accItems,null)+
     navSection('automation','Automation','⚡',autoItems,null)+
+    navSection('moti','Moti','🤖',ni('🤖','Moti activity','motiActivity'),null)+
     navSection('account','Account','👤',ni('⚙️','Settings','settings')+'<button class="nav-item" onclick="doSignOut()"><span class="nav-icon">🚪</span>Sign Out</button>',null)+
     '<div class="card mt-16" style="background:var(--primary-light);border-color:rgba(13,148,136,.2);padding:14px"><div style="font-size:12px;font-weight:700;color:var(--primary-dark)">HomeLinq Pro</div><div style="font-size:11px;color:var(--muted);margin-top:2px">'+(S.engineer.name||'Engineer')+'</div><div style="font-size:11px;color:var(--muted)">Gas Safe #'+(S.engineer.gasSafe||'—')+'</div><div style="font-size:10px;margin-top:6px;display:flex;align-items:center;gap:4px"><span style="width:6px;height:6px;border-radius:50%;background:'+(_lastSyncOk?'#10B981':'#EF4444')+'"></span><span style="color:'+(_lastSyncOk?'var(--muted)':'#EF4444')+'">'+(_lastSyncOk?'Cloud sync active':'Sync issue — check connection')+'</span></div></div></div>';
 }
@@ -7531,9 +7490,114 @@ function bottomNav(){
 }
 function mobileTop(){return '<div class="mobile-topbar"><div class="mobile-topbar-inner"><div class="flex gap-8" style="align-items:center"><div class="sidebar-logo" style="width:30px;height:30px;font-size:13px">H</div><span class="fw-800" style="font-size:15px">HomeLinq Pro</span></div><div class="badge badge-success">Gas Safe ✓</div></div></div>'}
 
+// ===== PHASE 2: job photos (private storage) + Moti activity =====
+function _isUuid(x){return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(x||''))}
+var jobPhotos={};
+var JOB_PHOTO_KIND={receipt:'🧾 Receipt',data_plate:'🏷️ Data plate',fault:'⚠️ Fault',site:'📷 Site',certificate:'📜 Certificate'};
+function loadJobPhotos(jobId,force){
+  if(!currentUser||!sb||!_isUuid(jobId))return;
+  var c=jobPhotos[jobId];if(c&&(c.loading||c.list)&&!force)return;
+  jobPhotos[jobId]={loading:true,list:c&&c.list||null};
+  sb.from('job_photos').select('*').eq('job_id',jobId).order('created_at',{ascending:false}).then(function(res){
+    if(res.error){jobPhotos[jobId]={loading:false,list:[],error:res.error.message};render();return}
+    var rows=res.data||[],out=[],left=rows.length;
+    if(!left){jobPhotos[jobId]={loading:false,list:[]};render();return}
+    rows.forEach(function(r,i){
+      sb.storage.from(r.storage_bucket||'job-photos').createSignedUrl(r.storage_path,3600).then(function(s){
+        out[i]={id:r.id,url:s.data?s.data.signedUrl:'',kind:r.kind,caption:r.caption||'',at:r.created_at,via:r.created_via};
+        if(--left===0){jobPhotos[jobId]={loading:false,list:out.filter(function(x){return x&&x.url})};render()}
+      });
+    });
+  });
+}
+function _shrinkPhoto(file,cb){
+  var url=URL.createObjectURL(file),img=new Image();
+  img.onload=function(){
+    var sc=Math.min(1,1600/Math.max(img.width,img.height)),c=document.createElement('canvas');
+    c.width=Math.round(img.width*sc);c.height=Math.round(img.height*sc);c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+    URL.revokeObjectURL(url);
+    c.toBlob(function(b){cb(b?null:'Could not read that photo',b)},'image/jpeg',0.82);
+  };
+  img.onerror=function(){URL.revokeObjectURL(url);cb('That file doesn\'t look like a photo')};
+  img.src=url;
+}
+function addJobPhoto(jobId,input){
+  var f=input.files&&input.files[0];input.value='';if(!f||!currentUser)return;
+  if(!_isUuid(jobId)){toast('warning','Photos can be added once this job has synced');return}
+  toast('info','Saving photo…');
+  _shrinkPhoto(f,function(err,blob){
+    if(err){toast('error',err);return}
+    var path=currentUser.id+'/'+jobId+'/'+Date.now()+'.jpg';
+    sb.storage.from('job-photos').upload(path,blob,{contentType:'image/jpeg',upsert:false}).then(function(up){
+      if(up.error){toast('error','Photo not saved: '+up.error.message);return}
+      sb.from('job_photos').insert({engineer_id:currentUser.id,job_id:jobId,storage_bucket:'job-photos',storage_path:path,kind:'site',created_via:'app'}).then(function(res){
+        if(res.error){toast('error','Photo not saved: '+res.error.message);return}
+        toast('success','Photo saved to the job');loadJobPhotos(jobId,true);
+      });
+    });
+  });
+}
+function jobPhotosSection(j){
+  if(!_isUuid(j.id))return '<div class="card mt-16"><div class="card-title mb-8">📸 Job photos</div><div class="text-sm text-muted">Photos can be added once this job has synced.</div></div>';
+  loadJobPhotos(j.id);var c=jobPhotos[j.id]||{};
+  var h='<div class="card mt-16"><div class="flex-between mb-8" style="flex-wrap:wrap;gap:8px"><div class="card-title">📸 Job photos</div>'+
+    '<label class="btn btn-secondary btn-sm" style="cursor:pointer">+ Add photo<input type="file" accept="image/*" style="display:none" onchange="addJobPhoto(\''+j.id+'\',this)"></label></div>'+
+    '<div class="text-sm text-muted mb-8">Kept privately with this job — only you can see them. You can also send photos to Moti and choose “keep this photo”.</div>';
+  if(c.loading&&!c.list)return h+'<div class="text-sm text-muted">Loading photos…</div></div>';
+  var list=c.list||[];
+  if(!list.length)return h+'<div class="text-sm text-muted">No photos yet.</div></div>';
+  return h+'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px">'+list.map(function(p){
+    return '<a href="'+escAttr(p.url)+'" target="_blank" rel="noopener" style="display:block;text-decoration:none;color:inherit"><img src="'+escAttr(p.url)+'" alt="'+escAttr(p.caption||'Job photo')+'" style="width:100%;height:96px;object-fit:cover;border-radius:8px;border:1px solid var(--border)">'+
+      '<div style="font-size:10.5px;margin-top:2px">'+(JOB_PHOTO_KIND[p.kind]||'📷')+(p.via==='moti'?' · Moti':'')+'</div>'+(p.caption?'<div class="text-muted" style="font-size:10.5px">'+esc(p.caption.substring(0,40))+'</div>':'')+'</a>'}).join('')+'</div></div>';
+}
+// Moti activity — what Moti suggested, what you approved, what it did
+var motiAct={range:'today',rows:null,loading:false,key:'',showSuggestions:false,error:''};
+function _motiActFrom(range){var d=new Date();d.setHours(0,0,0,0);if(range==='week')d.setDate(d.getDate()-6);if(range==='month')d.setDate(d.getDate()-29);return d}
+function loadMotiActivity(force){
+  if(!currentUser||!sb)return;var key=motiAct.range+'|'+localDateKey(new Date());
+  if(!force&&(motiAct.loading||motiAct.key===key&&motiAct.rows))return;
+  motiAct.loading=true;motiAct.key=key;motiAct.error='';
+  sb.from('moti_activity').select('*').gte('at',_motiActFrom(motiAct.range).toISOString()).order('at',{ascending:false}).limit(500).then(function(res){
+    motiAct.loading=false;
+    if(res.error){motiAct.error=res.error.message;motiAct.rows=[]}else motiAct.rows=res.data||[];
+    if(S.screen==='motiActivity')render();
+  });
+}
+function motiActRange(r){motiAct.range=r;loadMotiActivity(true);render()}
+var MOTI_KIND={done:['✅','Done','var(--success-light)'],approved:['👍','Approved','var(--success-light)'],failed:['❌','Didn\'t go through','var(--danger-light)'],declined:['✋','You said no','var(--bg)'],proposed:['💡','Suggested','var(--primary-light)']};
+function pgMotiActivity(){
+  loadMotiActivity();
+  var rows=(motiAct.rows||[]).filter(function(r){return motiAct.showSuggestions||r.kind!=='proposed'});
+  var all=motiAct.rows||[],cnt=function(k){return all.filter(function(r){return r.kind===k}).length};
+  var money=0;all.forEach(function(r){if(r.kind==='done'&&r.amount&&(r.tool==='create_invoice'||r.tool==='complete_job'))money+=Number(r.amount)});
+  var b=function(r,l){return '<button class="btn '+(motiAct.range===r?'btn-primary':'btn-secondary')+' btn-sm" onclick="motiActRange(\''+r+'\')">'+l+'</button>'};
+  var h='<div class="main-header"><div class="flex-between" style="flex-wrap:wrap;gap:10px"><div><h1>🤖 Moti activity</h1><p>Everything Moti suggested and did for you — nothing changes without your approval.</p></div>'+
+    '<div class="flex gap-8">'+b('today','Today')+b('week','7 days')+b('month','30 days')+'</div></div></div>';
+  h+='<div class="stats-grid" style="grid-template-columns:repeat(4,1fr)"><div class="card stat-card"><div class="stat-label">Done</div><div class="stat-value" style="color:var(--success)">'+cnt('done')+'</div></div>'+
+    '<div class="card stat-card"><div class="stat-label">Invoiced by Moti</div><div class="stat-value">'+_wizGBP(money)+'</div></div>'+
+    '<div class="card stat-card"><div class="stat-label">You said no</div><div class="stat-value">'+cnt('declined')+'</div></div>'+
+    '<div class="card stat-card"><div class="stat-label">Didn\'t go through</div><div class="stat-value" style="color:'+(cnt('failed')?'var(--danger)':'inherit')+'">'+cnt('failed')+'</div></div></div>';
+  h+='<div class="card"><div class="flex-between mb-8"><div class="card-title">Timeline</div><label class="text-sm" style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" '+(motiAct.showSuggestions?'checked':'')+' onchange="motiAct.showSuggestions=this.checked;render()"> Show suggestions too</label></div>';
+  if(motiAct.loading&&!motiAct.rows)return h+'<div class="text-sm text-muted">Loading…</div></div>';
+  if(motiAct.error)return h+'<div class="text-sm" style="color:var(--danger)">'+esc(motiAct.error)+'</div></div>';
+  if(!rows.length)return h+'<div class="text-sm text-muted" style="padding:10px 0">Nothing yet for this period. Ask Moti in the chat, or send it a photo of a receipt or a data plate.</div></div>';
+  var lastDay='';
+  rows.forEach(function(r){
+    var d=new Date(r.at),day=d.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'});
+    if(day!==lastDay){h+='<div class="fw-800 text-sm" style="margin:14px 0 6px">'+day+'</div>';lastDay=day}
+    var k=MOTI_KIND[r.kind]||['•',r.kind,'var(--bg)'];
+    h+='<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 10px;border-radius:10px;background:'+k[2]+';margin-bottom:6px">'+
+      '<div style="font-size:16px">'+k[0]+'</div><div style="flex:1;min-width:0"><div class="text-sm">'+esc(r.summary||'')+'</div>'+
+      '<div class="text-muted" style="font-size:11px">'+d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})+' · '+k[1]+(r.source==='photo'?' · from a photo':r.source==='import'?' · import':'')+
+      (r.kind==='failed'&&r.detail&&r.detail.error?' · '+esc(String(r.detail.error).substring(0,120)):'')+'</div></div>'+
+      (r.amount?'<div class="fw-700 text-sm">'+_wizGBP(r.amount)+'</div>':'')+'</div>';
+  });
+  return h+'</div>';
+}
+
 // ===== DASHBOARD =====
 function pgDash(){
-  var t=calcTax();var unpaid=invoices.filter(function(i){return i.st==='unpaid'}).reduce(function(s,i){return s+i.amt},0);
+  booksLoadYtd();var _ys=books.ytd&&books.ytd.summary;var unpaid=invoices.filter(function(i){return i.st==='unpaid'}).reduce(function(s,i){return s+i.amt},0);
   var tj=getJobs(todayKey);
   var todayRev=tj.filter(function(j){return j.st==='completed'}).reduce(function(s,j){return s+j.amt},0);
   var todayTotal=tj.reduce(function(s,j){return s+j.amt},0);
@@ -7561,10 +7625,10 @@ function pgDash(){
     '<div class="quick-action" onclick="go(\'mileage\')"><div class="qa-icon">🚗</div><div class="qa-label">Mileage</div></div>'+
     '<div class="quick-action" onclick="go(\'taxDash\')"><div class="qa-icon">🏛️</div><div class="qa-label">Tax Position</div></div>'+
     '<div class="quick-action" onclick="go(\'reminders\')"><div class="qa-icon">🔔</div><div class="qa-label">Reminders</div></div></div></div></div>'+
-    '<div class="card mt-24"><div class="card-header"><div class="card-title">Income vs Expenses (YTD)</div><button class="btn btn-secondary btn-sm" onclick="go(\'accounting\')">View All</button></div>'+
-    '<div class="grid-3"><div style="text-align:center;padding:16px"><div class="text-sm text-muted">Gross Income</div><div style="font-size:24px;font-weight:900;color:var(--success);margin-top:4px">£'+tax.grossIncome.toLocaleString()+'</div></div>'+
-    '<div style="text-align:center;padding:16px"><div class="text-sm text-muted">Total Expenses</div><div style="font-size:24px;font-weight:900;color:var(--danger);margin-top:4px">£'+tax.totalExpenses.toLocaleString()+'</div></div>'+
-    '<div style="text-align:center;padding:16px"><div class="text-sm text-muted">Net Profit</div><div style="font-size:24px;font-weight:900;color:var(--primary);margin-top:4px">£'+(tax.grossIncome-tax.totalExpenses).toLocaleString()+'</div></div></div></div>';
+    '<div class="card mt-24"><div class="card-header"><div class="card-title">Income vs Expenses — tax year '+booksTyName(booksTyStartYear())+'</div><button class="btn btn-secondary btn-sm" onclick="go(\'accounting\')">View All</button></div>'+
+    '<div class="grid-3"><div style="text-align:center;padding:16px"><div class="text-sm text-muted">Income received</div><div style="font-size:24px;font-weight:900;color:var(--success);margin-top:4px">'+(_ys?_wizGBP(_ys.turnover):'…')+'</div></div>'+
+    '<div style="text-align:center;padding:16px"><div class="text-sm text-muted">Expenses claimed</div><div style="font-size:24px;font-weight:900;color:var(--danger);margin-top:4px">'+(_ys?_wizGBP(_ys.expenses_claimed):'…')+'</div></div>'+
+    '<div style="text-align:center;padding:16px"><div class="text-sm text-muted">Net Profit</div><div style="font-size:24px;font-weight:900;color:var(--primary);margin-top:4px">'+(_ys?_wizGBP(_ys.net_profit):'…')+'</div></div></div></div>';
 }
 
 // ===== JOB SHEET =====
@@ -7579,7 +7643,7 @@ function renderJobExpenses(j){
   }).join('');
   return '<div class="job-expenses" onclick="event.stopPropagation()"><div class="job-expenses-header"><div class="job-expenses-title">Job Expenses ('+j.expenses.length+')</div></div>'+
     (rows||'<div class="text-sm text-muted" style="padding:4px 0">No expenses yet</div>')+
-    '<div class="exp-add-row" onclick="event.stopPropagation()" style="flex-wrap:wrap;gap:6px">'+buildExpCatDropdown(j.id)+'<input id="jexp-desc-'+j.id+'" class="input" placeholder="Expense description" onclick="event.stopPropagation()" style="padding:6px 10px;font-size:12px;flex:1;min-width:120px"><input id="jexp-amt-'+j.id+'" class="exp-amt-input input" type="number" step="0.01" placeholder="£" onclick="event.stopPropagation()" style="padding:6px 10px;font-size:12px;max-width:80px"><button onclick="event.stopPropagation();addJobExpense(\''+j.id+'\')">+ Add</button></div>'+
+    '<div class="exp-add-row" onclick="event.stopPropagation()" style="flex-wrap:wrap;gap:6px">'+buildExpCatDropdown(j.id)+'<input id="jexp-desc-'+j.id+'" class="input" placeholder="Expense description" onclick="event.stopPropagation()" style="padding:6px 10px;font-size:12px;flex:1;min-width:120px"><input id="jexp-amt-'+j.id+'" class="exp-amt-input input" type="number" step="0.01" placeholder="£" onclick="event.stopPropagation()" style="padding:6px 10px;font-size:12px;max-width:80px">'+(S.engineer.vatReg?'<input id="jexp-vat-'+j.id+'" class="input" type="number" step="0.01" placeholder="VAT £" title="VAT on the receipt" onclick="event.stopPropagation()" style="padding:6px 10px;font-size:12px;max-width:80px">':'')+'<button onclick="event.stopPropagation();addJobExpense(\''+j.id+'\')">+ Add</button></div>'+
     '<div id="jexp-sug-'+j.id+'" style="padding:4px 0"></div>'+
     (j.expenses.length?'<div class="exp-summary"><div class="exp-summary-item"><span class="exp-summary-label">Total:</span><span class="exp-summary-val">£'+totalExp.toFixed(2)+'</span></div><div class="exp-summary-item"><span class="exp-summary-label">Billed to client:</span><span class="exp-summary-val" style="color:var(--success)">£'+billableTotal.toFixed(2)+'</span></div><div class="exp-summary-item"><span class="exp-summary-label">Your books:</span><span class="exp-summary-val" style="color:var(--warning)">£'+(totalExp-billableTotal).toFixed(2)+'</span></div></div>':'')+'</div>';
 }
@@ -8075,8 +8139,8 @@ function pgEditJob(){
   var tag=j.type==='company'?'<span class="company-tag">🏢 '+j.company+'</span>':'<span class="direct-tag">👤 Direct Customer</span>';
   var billableTotal=j.expenses.filter(function(e){return e.billable}).reduce(function(s,e){return s+e.amt},0);
   var totalExp=j.expenses.reduce(function(s,e){return s+e.amt},0);
-  var invTotal=j.amt+billableTotal;var invVat=S.engineer.vatReg?Math.round(invTotal*0.2*100)/100:0;
-  var vatLabel=S.engineer.vatReg?' + VAT £'+invVat.toFixed(2):'';
+  var invTotal=j.amt+billableTotal;var invVat=0;
+  var vatLabel=S.engineer.vatReg?' + VAT (you choose the rate when you complete the job)':'';
   var invCard=j.type==='company'?
     '<div class="card mt-16" style="background:var(--purple-light);border-color:#C4B5FD"><div class="text-sm fw-700" style="color:#5B21B6;margin-bottom:4px">🏢 Company Invoice</div><div class="text-sm">To: <strong>'+esc(j.company)+'</strong> · Job #'+j.jobNum+'</div><div class="text-sm">Labour £'+j.amt+' + Expenses £'+billableTotal.toFixed(2)+vatLabel+' = <strong>£'+(invTotal+invVat).toFixed(2)+'</strong></div></div>':
     '<div class="card mt-16" style="background:var(--blue-light);border-color:#93C5FD"><div class="text-sm fw-700" style="color:#1E40AF;margin-bottom:4px">👤 Direct Invoice</div><div class="text-sm">To: <strong>'+esc(j.cust)+'</strong>'+(j.custEmail?' ('+esc(j.custEmail)+')':'')+'</div><div class="text-sm">Labour £'+j.amt+' + Expenses £'+billableTotal.toFixed(2)+vatLabel+' = <strong>£'+(invTotal+invVat).toFixed(2)+'</strong></div></div>';
@@ -8125,23 +8189,13 @@ function pgEditJob(){
       }).join(''):'<div class="text-center text-muted" style="padding:16px">No expenses yet</div>')+
       '<div style="margin-top:12px">'+buildExpCatDropdown(j.id)+'</div>'+
       '<div id="jexp-sug-'+j.id+'" style="padding:4px 0"></div>'+
-      '<div class="exp-add-row" style="margin-top:8px"><input id="jexp-desc-'+j.id+'" class="input" placeholder="e.g. 15mm valve" style="padding:8px 10px;font-size:13px;flex:1"><input id="jexp-amt-'+j.id+'" class="input" type="number" step="0.01" placeholder="£" style="padding:8px 10px;font-size:13px;max-width:90px"><button onclick="addJobExpense(\''+j.id+'\')">+ Add</button></div>'+
+      '<div class="exp-add-row" style="margin-top:8px"><input id="jexp-desc-'+j.id+'" class="input" placeholder="e.g. 15mm valve" style="padding:8px 10px;font-size:13px;flex:1"><input id="jexp-amt-'+j.id+'" class="input" type="number" step="0.01" placeholder="£" style="padding:8px 10px;font-size:13px;max-width:90px">'+(S.engineer.vatReg?'<input id="jexp-vat-'+j.id+'" class="input" type="number" step="0.01" placeholder="VAT £" title="VAT on the receipt" style="padding:8px 10px;font-size:13px;max-width:90px">':'')+'<button onclick="addJobExpense(\''+j.id+'\')">+ Add</button></div>'+
       (j.expenses.length?'<div style="margin-top:16px;padding-top:12px;border-top:2px solid var(--border)"><div style="display:flex;justify-content:space-between;padding:4px 0"><span class="text-sm text-muted">Total expenses</span><span class="fw-800">£'+totalExp.toFixed(2)+'</span></div>'+
       '<div style="display:flex;justify-content:space-between;padding:4px 0"><span class="text-sm" style="color:var(--success)">Billed to client</span><span class="fw-800" style="color:var(--success)">£'+billableTotal.toFixed(2)+'</span></div>'+
       '<div style="display:flex;justify-content:space-between;padding:4px 0"><span class="text-sm" style="color:var(--warning)">Your books only</span><span class="fw-800" style="color:var(--warning)">£'+(totalExp-billableTotal).toFixed(2)+'</span></div></div>':'')+'</div>';
   }
-  // Photos section: only show for non-completed
-  var photosSection='';
-  if(!isCompleted){
-    photosSection='<div class="card mt-16"><div class="card-title mb-16">📸 Before &amp; After Photos</div>'+
-      '<div class="text-sm text-muted mb-16">Capture evidence of work done. Photos are attached to the job record and shared with the customer.</div>'+
-      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">'+
-      '<div><div class="fw-600 text-sm mb-8" style="color:var(--danger)">Before</div>'+
-      '<div style="border:2px dashed var(--border);border-radius:var(--radius);padding:32px;text-align:center;cursor:pointer;background:var(--bg);transition:all .2s" onclick="this.innerHTML=\'<div style=\\\'font-size:36px;margin-bottom:8px\\\'>✓</div><div class=\\\'fw-600\\\'style=\\\'color:var(--success)\\\'>Photo captured</div><div class=\\\'text-sm text-muted mt-4\\\'>Tap to retake</div>\';toast(\'success\',\'Before photo captured\')"><div style="font-size:28px;margin-bottom:8px">📷</div><div class="text-sm text-muted">Tap to capture before photo</div></div></div>'+
-      '<div><div class="fw-600 text-sm mb-8" style="color:var(--success)">After</div>'+
-      '<div style="border:2px dashed var(--border);border-radius:var(--radius);padding:32px;text-align:center;cursor:pointer;background:var(--bg);transition:all .2s" onclick="this.innerHTML=\'<div style=\\\'font-size:36px;margin-bottom:8px\\\'>✓</div><div class=\\\'fw-600\\\'style=\\\'color:var(--success)\\\'>Photo captured</div><div class=\\\'text-sm text-muted mt-4\\\'>Tap to retake</div>\';toast(\'success\',\'After photo captured\')"><div style="font-size:28px;margin-bottom:8px">📷</div><div class="text-sm text-muted">Tap to capture after photo</div></div></div>'+
-      '</div></div>';
-  }
+  // Photos: kept privately with the job (job_photos + private storage)
+  var photosSection=jobPhotosSection(j);
   return '<button class="back-btn" onclick="go(\'jobsheet\')">← Back to Job Sheet</button>'+
     completedBanner+
     '<div class="main-header"><div class="flex-between"><div><h1>'+pageTitle+'</h1><p>'+esc(j.cust)+' · '+esc(j.addr)+'</p></div><div style="display:flex;align-items:center;gap:8px">'+tag+'<div class="badge badge-'+(j.st==='completed'?'success':j.st==='in_progress'?'warning':'blue')+'">'+(j.st==='completed'?'Completed':j.st==='in_progress'?'In Progress':'Upcoming')+'</div></div></div></div>'+
@@ -9096,151 +9150,367 @@ function pgEngQuotes(){
 }
 
 // ===== ACCOUNTING =====
-function pgAccounting(){
-  var totalExp=expenses.reduce(function(s,e){return s+e.amt},0);
-  var cats={};expenses.forEach(function(e){cats[e.cat]=(cats[e.cat]||0)+e.amt});
-  var incTrans=invoices.map(function(i){return {date:i.date,desc:i.desc+' — '+i.cust,amt:i.amt,type:'income',cat:'Service Income'}});
-  var expTrans=expenses.map(function(e){return {date:e.date,desc:e.desc+' — '+e.vendor,amt:e.amt,type:'expense',cat:e.cat}});
-  var allTrans=incTrans.concat(expTrans).sort(function(a,b){return new Date(b.date)-new Date(a.date)});
-
-  return '<div class="main-header"><div class="flex-between"><div><h1>Accounting</h1><p>Income, expenses, and transaction ledger — auto-recorded from jobs.</p></div><button class="btn btn-primary" onclick="showGenExpModal()">+ Add Expense</button></div></div>'+
-    '<div class="stats-grid" style="grid-template-columns:repeat(3,1fr)">'+
-    '<div class="card stat-card"><div class="stat-label">Total Income (YTD)</div><div class="stat-value" style="color:var(--success)">£'+tax.grossIncome.toLocaleString()+'</div></div>'+
-    '<div class="card stat-card"><div class="stat-label">Total Expenses (YTD)</div><div class="stat-value" style="color:var(--danger)">£'+totalExp.toFixed(2)+'</div></div>'+
-    '<div class="card stat-card"><div class="stat-label">Net Profit</div><div class="stat-value" style="color:var(--primary)">£'+(tax.grossIncome-totalExp).toLocaleString()+'</div></div></div>'+
-    '<div class="grid-2">'+
-    '<div class="card"><div class="card-title mb-16">Expenses by Category</div>'+
-    Object.keys(cats).map(function(k){var pct=(cats[k]/totalExp*100).toFixed(0);return '<div style="margin-bottom:12px"><div class="flex-between"><div class="text-sm fw-700">'+k+'</div><div class="text-sm fw-700">£'+cats[k].toFixed(2)+' ('+pct+'%)</div></div><div class="progress-bar" style="margin-top:4px"><div class="progress-fill" style="width:'+pct+'%;background:var(--primary)"></div></div></div>'}).join('')+'</div>'+
-    '<div class="card"><div class="card-title mb-16">Recent Expenses</div>'+
-    expenses.slice(0,5).map(function(e){return '<div class="list-item"><div class="avatar avatar-danger">£</div><div class="list-item-info"><div class="list-item-title">'+e.desc+'</div><div class="list-item-sub">'+e.vendor+' · '+e.date+'</div></div><div style="text-align:right"><div class="fw-700" style="color:var(--danger)">-£'+e.amt.toFixed(2)+'</div><div class="badge badge-neutral">'+e.cat+'</div></div></div>'}).join('')+'</div></div>'+
-    '<div class="card mt-24"><div class="card-header"><div class="card-title">Transaction Ledger</div><div class="flex gap-8"><button class="btn btn-secondary btn-sm">Filter</button><button class="btn btn-secondary btn-sm">Export CSV</button></div></div><div class="table-wrap"><table><thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Amount</th></tr></thead><tbody>'+
-    allTrans.slice(0,12).map(function(t){return '<tr><td>'+t.date+'</td><td>'+t.desc+'</td><td><span class="badge badge-'+(t.type==='income'?'success':'neutral')+'">'+t.cat+'</span></td><td class="fw-700" style="color:var(--'+(t.type==='income'?'success':'danger')+')">'+(t.type==='income'?'+':'-')+'£'+t.amt.toFixed(2)+'</td></tr>'}).join('')+'</tbody></table></div></div>';
+// ===== BOOKS (Phase 2A): one set of books read from the database via get_books =====
+// Tax rates by tax year (England, Wales & Northern Ireland). Checked against GOV.UK-sourced tax tables, Nov 2026.
+var BOOKS_RATES={
+  2024:{pa:12570,taper:100000,basicTop:50270,higherTop:125140,basic:0.20,higher:0.40,additional:0.45,c4Lower:12570,c4Upper:50270,c4Main:0.06,c4Upper2:0.02},
+  2025:{pa:12570,taper:100000,basicTop:50270,higherTop:125140,basic:0.20,higher:0.40,additional:0.45,c4Lower:12570,c4Upper:50270,c4Main:0.06,c4Upper2:0.02},
+  2026:{pa:12570,taper:100000,basicTop:50270,higherTop:125140,basic:0.20,higher:0.40,additional:0.45,c4Lower:12570,c4Upper:50270,c4Main:0.06,c4Upper2:0.02}
+};
+var BOOKS_BOXES=[[17,'Cost of goods bought for resale or goods used'],[18,'Construction industry – payments to subcontractors'],[19,'Wages, salaries and other staff costs'],
+  [20,'Car, van and travel expenses'],[21,'Rent, rates, power and insurance costs'],[22,'Repairs and maintenance of property and equipment'],[23,'Phone, fax, stationery and other office costs'],
+  [24,'Advertising and business entertainment costs'],[25,'Interest on bank and other loans'],[26,'Bank, credit card and other financial charges'],[27,'Irrecoverable debts written off'],
+  [28,'Accountancy, legal and other professional fees'],[29,'Depreciation and loss or profit on sale of assets'],[30,'Other business expenses']];
+var BOOKS_CAT_BOX={cogs:17,fuel:20,van:20,travel:20,parking:20,insurance:21,rent:21,repairs:22,phone:23,office:23,subscriptions:23,advertising:24,bank:26,card_fees:26,professional:28};
+function booksBox(cat){return BOOKS_CAT_BOX[cat]||30}
+function booksTyStartYear(dateStr){var d=dateStr||localDateKey(new Date());var y=parseInt(d.substring(0,4),10);return d.substring(5)>='04-06'?y:y-1}
+function booksTyName(y){var n=String((y+1)%100);if(n.length<2)n='0'+n;return y+'/'+n}
+function booksRange(p){
+  var y=p.ty;
+  if(p.type==='quarter'){var q=[[y+'-04-06',y+'-07-05'],[y+'-07-06',y+'-10-05'],[y+'-10-06',(y+1)+'-01-05'],[(y+1)+'-01-06',(y+1)+'-04-05']][p.q-1];return {from:q[0],to:q[1]}}
+  if(p.type==='custom')return {from:p.from,to:p.to};
+  return {from:y+'-04-06',to:(y+1)+'-04-05'};
 }
-
-// ===== MILEAGE =====
-function pgMileage(){
-  var totalMi=mileageLog.reduce(function(s,m){return s+m.mi+m.ret},0);
-  var ytdMi=tax.totalMiles;
-  var ded45=Math.min(ytdMi,10000)*0.45;var ded25=Math.max(ytdMi-10000,0)*0.25;var totalDed=ded45+ded25;
-
-  return '<div class="main-header"><div class="flex-between"><div><h1>Mileage Tracker</h1><p>Auto-calculated from job addresses. HMRC approved rates.</p></div><button class="btn btn-primary">+ Manual Entry</button></div></div>'+
-    '<div class="stats-grid"><div class="card stat-card"><div class="stat-label">Miles This Tax Year</div><div class="stat-value">'+ytdMi.toLocaleString()+'</div><div class="stat-change">Apr 2025 – Apr 2026</div></div>'+
-    '<div class="card stat-card"><div class="stat-label">Tax Deduction (45p)</div><div class="stat-value" style="color:var(--success)">£'+ded45.toLocaleString()+'</div><div class="stat-change">First 10,000 miles</div></div>'+
-    '<div class="card stat-card"><div class="stat-label">Tax Deduction (25p)</div><div class="stat-value" style="color:var(--success)">£'+ded25.toLocaleString()+'</div><div class="stat-change">'+(ytdMi-10000).toLocaleString()+' extra miles</div></div>'+
-    '<div class="card stat-card" style="background:var(--success-light);border-color:rgba(16,185,129,.3)"><div class="stat-label" style="color:#065F46">Total Mileage Deduction</div><div class="stat-value" style="color:#065F46">£'+totalDed.toLocaleString()+'</div><div class="stat-change up">Reduces your tax bill</div></div></div>'+
-    '<div class="card mb-24" style="background:var(--primary-light);border-color:rgba(13,148,136,.2)"><div class="flex gap-12" style="align-items:center"><div style="font-size:28px">💡</div><div><div class="fw-700" style="color:var(--primary-dark)">Saving you money automatically</div><div class="text-sm" style="color:var(--primary-dark);margin-top:4px">Every job you log auto-calculates mileage from your home to the job address. This £'+totalDed.toLocaleString()+' deduction reduces your taxable profit — most engineers miss this entirely.</div></div></div></div>'+
-    '<div class="card"><div class="card-header"><div class="card-title">Recent Mileage Log</div><div class="flex gap-8"><button class="btn btn-secondary btn-sm">Export</button></div></div><div class="table-wrap"><table><thead><tr><th>Date</th><th>Customer</th><th>From → To</th><th>Miles Out</th><th>Return</th><th>Total</th></tr></thead><tbody>'+
-    mileageLog.map(function(m){return '<tr><td>'+m.date+'</td><td>'+esc(m.cust)+'</td><td class="text-muted">'+esc(m.from)+' → '+esc(m.to)+'</td><td>'+m.mi+'</td><td>'+m.ret+'</td><td class="fw-700">'+(m.mi+m.ret).toFixed(1)+'</td></tr>'}).join('')+'</tbody></table></div></div>';
+function booksPeriodName(p){
+  var r=booksRange(p);
+  if(p.type==='quarter')return 'Q'+p.q+' '+booksTyName(p.ty)+' ('+_wizUK(r.from)+' – '+_wizUK(r.to)+')';
+  if(p.type==='custom')return _wizUK(r.from)+' – '+_wizUK(r.to);
+  return 'Tax year '+booksTyName(p.ty)+' (6 Apr '+p.ty+' – 5 Apr '+(p.ty+1)+')';
 }
-
-// ===== TAX DASHBOARD =====
-function calcSA103boxes(){
-  // Aggregate all expenses by HMRC category
-  var allExp=generalExpenses.concat([]);
-  // Also include job expenses from completed jobs
-  Object.keys(allJobs).forEach(function(d){allJobs[d].forEach(function(j){
-    if(j.st==='completed'&&j.expenses){j.expenses.forEach(function(e){
-      if(!e.billable){allExp.push({cat:e.cat||'cogs',catLabel:e.catLabel||'Parts & Materials',amt:e.amt})}
-    })}
-  })});
-  var boxes={
-    'box9':{label:'Trading income',val:tax.grossIncome,type:'income'},
-    'box10':{label:'Cost of goods sold',val:0,cats:['cogs']},
-    'box12':{label:'Construction industry / subcontractor',val:0,cats:['clothing']},
-    'box15':{label:'Capital allowances',val:0,cats:['tools']},
-    'box16':{label:'Professional fees / training',val:0,cats:['training','professional']},
-    'box17':{label:'Insurance',val:0,cats:['insurance']},
-    'box18':{label:'Office costs / phone / subscriptions',val:0,cats:['phone','office','subscriptions']},
-    'box19':{label:'Other allowable expenses',val:0,cats:['other']},
-    'box20':{label:'Vehicle expenses (mileage allowance)',val:0,cats:['fuel','van']}
-  };
-  allExp.forEach(function(e){
-    Object.keys(boxes).forEach(function(bk){
-      var b=boxes[bk];
-      if(b.cats&&b.cats.indexOf(e.cat)!==-1){b.val+=e.amt}
-    });
+var books={period:{type:'year',ty:booksTyStartYear()},includeImported:true,data:null,loading:false,error:'',key:'',filter:{kind:'all',source:'all',q:''},page:0,ytd:null,ytdKey:''};
+function booksLoad(force){
+  if(!currentUser||!sb)return;
+  var r=booksRange(books.period);var key=r.from+'|'+r.to+'|'+books.includeImported;
+  if(!force&&(books.loading||books.key===key&&books.data))return;
+  books.loading=true;books.error='';books.key=key;
+  sb.rpc('get_books',{p_from:r.from,p_to:r.to,p_lines:true,p_include_imported:books.includeImported}).then(function(res){
+    books.loading=false;
+    if(res.error){books.error=res.error.message||'Could not load your books';books.data=null;console.log('get_books error:',res.error.message)}
+    else{books.data=res.data;books.page=0}
+    if(['accounting','taxDash','mileage','dashboard'].indexOf(S.screen)!==-1)render();
   });
-  // Add mileage deduction to box 20
-  var t=calcTax();
-  boxes.box20.val+=t.mileageDed;
-  var totalExp=0;
-  Object.keys(boxes).forEach(function(bk){if(bk!=='box9')totalExp+=boxes[bk].val});
-  boxes.box31={label:'Total expenses',val:totalExp,type:'total'};
-  boxes.box32={label:'Net profit',val:tax.grossIncome-totalExp,type:'profit'};
-  return boxes;
 }
-function showSA103(){
-  var boxes=calcSA103boxes();var t=calcTax();var e=S.engineer;
-  var overlay=document.createElement('div');overlay.className='cascade-overlay';overlay.id='sa103Overlay';
-  overlay.onclick=function(ev){if(ev.target===overlay)overlay.remove()};
-  var boxRows=Object.keys(boxes).map(function(bk){
-    var b=boxes[bk];var isIncome=b.type==='income';var isTotal=b.type==='total';var isProfit=b.type==='profit';
-    var style=isTotal?'border-top:2px solid var(--text);font-weight:900;padding-top:14px':isProfit?'border-top:2px solid var(--text);font-weight:900;background:var(--primary-light)':'';
-    var valStyle=isIncome?'color:var(--success)':isTotal||isProfit?'':'color:var(--danger)';
-    return '<div class="sa103-box" style="'+style+'"><div class="sa103-box-num">'+bk.toUpperCase()+'</div><div class="sa103-box-label">'+b.label+'</div><div class="sa103-box-val" style="'+valStyle+'">'+(isIncome?'':'- ')+'£'+Math.round(b.val).toLocaleString()+'</div></div>';
-  }).join('');
-  overlay.innerHTML='<div class="cascade-panel" style="max-width:640px">'+
-    '<div style="text-align:center;margin-bottom:20px;padding-bottom:16px;border-bottom:2px solid var(--border)"><div style="font-size:20px;font-weight:900">🏛️ HMRC Self Assessment — SA103F</div><div class="text-sm text-muted mt-8">Self-employment (Full) · Tax Year 2025/26</div></div>'+
-    '<div style="display:flex;justify-content:space-between;margin-bottom:20px;padding:14px;background:var(--bg);border-radius:var(--radius)"><div><div class="text-sm text-muted">Taxpayer</div><div class="fw-700">'+esc(e.name)+'</div></div><div><div class="text-sm text-muted">UTR</div><div class="fw-700">'+esc(e.utr)+'</div></div><div><div class="text-sm text-muted">Business</div><div class="fw-700">'+esc(e.business)+'</div></div></div>'+
-    '<div class="label mb-16">Pre-filled from your HomeLinq data</div>'+
-    '<div style="border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">'+boxRows+'</div>'+
-    '<div style="margin-top:20px;padding:16px;background:var(--bg);border-radius:var(--radius)">'+
-    '<div class="breakdown-row"><div>Taxable profit (Box 32)</div><div class="fw-800">£'+Math.round(boxes.box32.val).toLocaleString()+'</div></div>'+
-    '<div class="breakdown-row"><div>Less: Personal Allowance</div><div>-£'+tax.personalAllowance.toLocaleString()+'</div></div>'+
-    '<div class="breakdown-row"><div>Income Tax (20%)</div><div>£'+Math.round(t.incomeTax).toLocaleString()+'</div></div>'+
-    '<div class="breakdown-row"><div>Class 2 NI</div><div>£'+Math.round(t.class2).toLocaleString()+'</div></div>'+
-    '<div class="breakdown-row"><div>Class 4 NI</div><div>£'+Math.round(t.class4).toLocaleString()+'</div></div>'+
-    '<div class="breakdown-row total"><div>Total tax due</div><div style="color:var(--danger)">£'+Math.round(t.totalTax).toLocaleString()+'</div></div></div>'+
-    '<div class="flex gap-8 mt-24" style="flex-wrap:wrap"><button class="btn btn-primary btn-lg" onclick="printElementById(\'sa103Overlay\',\'SA103 summary\')">🖨️ Print / Save as PDF</button><div style="width:100%;font-size:12px;color:var(--muted)">HomeLinq does not file with HMRC. Use these figures to complete your Self Assessment on gov.uk, or give them to your accountant.</div><button class="btn btn-secondary btn-lg" onclick="document.getElementById(\'sa103Overlay\').remove()">Close</button></div>'+
-    '<div style="margin-top:16px;padding:12px;background:var(--primary-light);border-radius:var(--radius);text-align:center"><div class="text-sm" style="color:var(--primary-dark)">✨ Every figure above was auto-calculated from your daily job sheet activity. No accountant needed.</div></div></div>';
-  document.body.appendChild(overlay);
+// Current tax year summary for the dashboard (no lines)
+function booksLoadYtd(force){
+  if(!currentUser||!sb)return;
+  var y=booksTyStartYear();var key=String(y);
+  if(!force&&books.ytdKey===key&&books.ytd)return;
+  books.ytdKey=key;
+  sb.rpc('get_books',{p_from:y+'-04-06',p_to:(y+1)+'-04-05',p_lines:false,p_include_imported:true}).then(function(res){
+    if(!res.error){books.ytd=res.data;if(S.screen==='dashboard')render()}
+  });
+}
+function booksRefresh(){books.key='';books.ytdKey='';if(['accounting','taxDash','mileage'].indexOf(S.screen)!==-1)booksLoad(true);booksLoadYtd(true)}
+function booksSetPeriod(type,val){
+  var p=books.period;
+  if(type==='ty'){p.ty=parseInt(val,10);if(p.type==='custom')p.type='year'}
+  else if(type==='year'){p.type='year'}
+  else if(type==='quarter'){p.type='quarter';p.q=parseInt(val,10)}
+  else if(type==='custom'){var f=document.getElementById('bk-from'),t=document.getElementById('bk-to');if(!f||!t||!f.value||!t.value||t.value<f.value){toast('error','Choose a start and end date');return}
+    p.type='custom';p.from=f.value;p.to=t.value}
+  booksLoad(true);render();
+}
+function booksToggleImported(){books.includeImported=!books.includeImported;booksLoad(true);render()}
+// One ledger row list: money in (+), money out (−), mileage allowance, vehicle costs not claimed
+function booksLedger(d){
+  if(!d||!d.lines)return [];
+  var L=d.lines,out=[],allow=d.engineer.vehicle_method_effective==='mileage_allowance';
+  (L.income||[]).forEach(function(x){out.push({date:x.date,kind:'income',type:x.kind==='marketplace'?'Marketplace payment':'Invoice paid',ref:x.number||'',desc:(x.customer?x.customer+' — ':'')+(x.description||''),
+    net:+x.net,vat:+x.vat,gross:+x.gross,box:'Turnover',source:x.source,imported:!!x.imported,claimed:true})});
+  (L.expenses||[]).forEach(function(x){out.push({date:x.date,kind:'expense',type:x.kind==='job'?'Job expense'+(x.billable?' (re-charged)':''):'Expense',ref:x.job_number||'',desc:x.description,
+    net:-(+x.cost),vat:-(+x.vat),gross:-(+x.amount),box:x.claimed?'Box '+x.box:'Not claimed (mileage allowance)',cat:x.category,source:x.source,imported:!!x.imported,claimed:!!x.claimed,receipt:!!x.receipt})});
+  (L.fees||[]).forEach(function(x){out.push({date:x.date,kind:'fee',type:'Platform fee',ref:'',desc:x.description,net:-(+x.cost),vat:0,gross:-(+x.cost),box:'Box 30',source:x.source,imported:false,claimed:true})});
+  (L.mileage||[]).forEach(function(x){out.push({date:x.date,kind:'mileage',type:'Mileage',ref:x.miles+' mi',desc:(x.customer?x.customer+' — ':'')+(x.from||'')+(x.to?' → '+x.to:''),
+    net:allow?-(+x.allowance):0,vat:0,gross:allow?-(+x.allowance):0,box:allow?'Box 20 (allowance)':'Actual costs used',source:x.source,imported:false,claimed:allow,miles:+x.miles})});
+  out.sort(function(a,b){return a.date<b.date?1:a.date>b.date?-1:0});
+  return out;
+}
+// Tax estimate from net profit (income tax + Class 4 NI; Class 2 is no longer compulsory)
+function booksTaxEstimate(profit,tyYear){
+  var R=BOOKS_RATES[tyYear]||BOOKS_RATES[2026];var p=Math.max(0,profit||0);
+  var pa=R.pa;if(p>R.taper)pa=Math.max(0,pa-Math.floor((p-R.taper)/2));
+  var taxable=Math.max(0,p-pa);
+  var basicBand=R.basicTop-R.pa;var higherTop=R.higherTop;
+  var inBasic=Math.min(taxable,basicBand);
+  var inHigher=Math.max(0,Math.min(p,higherTop)-pa-basicBand);if(inHigher<0)inHigher=0;
+  var inAdd=Math.max(0,taxable-inBasic-inHigher);
+  var incomeTax=inBasic*R.basic+inHigher*R.higher+inAdd*R.additional;
+  var c4=Math.max(0,Math.min(p,R.c4Upper)-R.c4Lower)*R.c4Main+Math.max(0,p-R.c4Upper)*R.c4Upper2;
+  return {profit:p,personalAllowance:pa,taxable:taxable,basic:inBasic,higher:inHigher,additional:inAdd,incomeTax:Math.round(incomeTax*100)/100,class4:Math.round(c4*100)/100,
+    total:Math.round((incomeTax+c4)*100)/100,ratesYear:BOOKS_RATES[tyYear]?tyYear:2026};
+}
+var BOOKS_SRC={app:['App','var(--bg)'],moti:['Moti','var(--primary-light)'],import:['Imported','var(--warning-light)'],photo:['Photo','var(--blue-light)'],system:['System','var(--bg)'],marketplace:['Marketplace','var(--purple-light)']};
+function _bkSrc(s){var x=BOOKS_SRC[s]||BOOKS_SRC.app;return '<span style="font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:9px;background:'+x[1]+'">'+x[0]+'</span>'}
+function _bkPeriodBar(){
+  var p=books.period,cur=booksTyStartYear(),yrs=[],r=booksRange(p);for(var y=cur;y>=cur-5;y--)yrs.push(y);
+  var b=function(on,label,fn){return '<button class="btn '+(on?'btn-primary':'btn-secondary')+' btn-sm" onclick="'+fn+'">'+label+'</button>'};
+  var h='<div class="card mb-16"><div class="flex gap-8" style="align-items:center;flex-wrap:wrap">'+
+    '<select class="select" style="padding:6px 10px" onchange="booksSetPeriod(\'ty\',this.value)">'+yrs.map(function(y){return '<option value="'+y+'"'+(y===p.ty?' selected':'')+'>Tax year '+booksTyName(y)+(y===cur?' (this year)':'')+'</option>'}).join('')+'</select>'+
+    b(p.type==='year','Whole year',"booksSetPeriod('year')")+[1,2,3,4].map(function(q){return b(p.type==='quarter'&&p.q===q,'Q'+q,"booksSetPeriod('quarter',"+q+")")}).join('')+
+    '<span class="text-sm text-muted" style="margin-left:6px">or</span><input type="date" id="bk-from" class="input" style="padding:5px 8px;max-width:150px" value="'+r.from+'"><input type="date" id="bk-to" class="input" style="padding:5px 8px;max-width:150px" value="'+r.to+'">'+
+    b(p.type==='custom','Go',"booksSetPeriod('custom')")+
+    '<label class="text-sm" style="margin-left:auto;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" '+(books.includeImported?'checked':'')+' onchange="booksToggleImported()"> Include imported history</label></div>';
+  var d=books.data;
+  h+='<div class="text-sm text-muted mt-8">'+esc(booksPeriodName(p))+(d?' · '+(d.engineer.basis==='accruals'?'Accruals: income counted when invoiced':'Cash basis: income counted when paid'):'')+
+    (p.type==='quarter'?' · Making Tax Digital quarter':'')+'</div></div>';
+  return h;
+}
+function _bkDownloads(){
+  return '<div class="flex gap-8" style="flex-wrap:wrap"><button class="btn btn-primary btn-sm" onclick="booksDownload(\'xlsx\')">📊 Excel for accountant</button>'+
+    '<button class="btn btn-secondary btn-sm" onclick="booksDownload(\'csv\')">📄 CSV ledger</button><button class="btn btn-secondary btn-sm" onclick="booksDownload(\'pdf\')">🧾 PDF summary</button></div>';
+}
+function _bkState(){
+  if(books.error)return '<div class="card" style="background:var(--danger-light)"><div class="fw-700">Couldn\'t load your books</div><div class="text-sm">'+esc(books.error)+'</div><button class="btn btn-primary btn-sm mt-8" onclick="booksLoad(true)">Try again</button></div>';
+  if(!books.data)return '<div class="card text-center" style="padding:30px"><div style="font-size:32px">📒</div><div class="fw-700 mt-8">Loading your books…</div></div>';
+  return '';
+}
+function _bkVehicleCard(d){
+  if(!d||d.engineer.vehicle_method)return '';
+  return '<div class="card mb-16" style="background:var(--warning-light)"><div class="fw-700">🚐 How do you claim your van costs?</div>'+
+    '<div class="text-sm mt-8">You can claim <strong>either</strong> the mileage allowance (45p a mile for the first 10,000 business miles in a tax year, then 25p) <strong>or</strong> your actual van costs (fuel, insurance, repairs, MOT…) — not both for the same vehicle. Until you choose, we use the mileage allowance and leave fuel and van costs out.</div>'+
+    '<div class="flex gap-8 mt-8" style="flex-wrap:wrap"><button class="btn btn-primary btn-sm" onclick="booksSaveSetting(\'vehicle_method\',\'mileage_allowance\')">Mileage allowance</button><button class="btn btn-secondary btn-sm" onclick="booksSaveSetting(\'vehicle_method\',\'actual_costs\')">Actual van costs</button>'+
+    '<span class="text-sm text-muted" style="align-self:center">Not sure? Ask your accountant — you can change this in Settings.</span></div></div>';
+}
+function booksSaveSetting(field,val){
+  if(!currentUser)return;var upd={};upd[field]=val;
+  sb.from('engineers').update(upd).eq('id',currentUser.id).then(function(res){
+    if(res.error){toast('error','Could not save: '+res.error.message);return}
+    S.engineer[field==='vehicle_method'?'vehicleMethod':'accountingBasis']=val;toast('success','Saved');booksRefresh();render();
+  });
+}
+function _bkBoxesTable(s){
+  var rows='<tr><td>15</td><td>Turnover</td><td style="text-align:right" class="fw-700">'+_wizGBP(s.turnover)+'</td></tr>';
+  BOOKS_BOXES.forEach(function(b){var v=s.boxes&&s.boxes[b[0]];if(v)rows+='<tr><td>'+b[0]+'</td><td>'+b[1]+'</td><td style="text-align:right">'+_wizGBP(v)+'</td></tr>'});
+  rows+='<tr style="font-weight:800;border-top:2px solid var(--text)"><td>31</td><td>Total expenses</td><td style="text-align:right">'+_wizGBP(s.expenses_claimed)+'</td></tr>'+
+    '<tr style="font-weight:800"><td></td><td>Net profit</td><td style="text-align:right;color:var(--primary-dark)">'+_wizGBP(s.net_profit)+'</td></tr>';
+  return '<div class="table-wrap"><table style="width:100%;font-size:13px"><thead><tr><th style="width:50px">Box</th><th>Self Assessment (SA103F)</th><th style="text-align:right">Amount</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+}
+function booksFilter(k,v){books.filter[k]=v;books.page=0;render()}
+function pgAccounting(){
+  booksLoad();
+  var d=books.data,s=d&&d.summary;
+  var h='<div class="main-header"><div class="flex-between" style="flex-wrap:wrap;gap:10px"><div><h1>Accounting</h1><p>Your books — everything from the app, Moti and imports, in one place.</p></div>'+
+    '<div class="flex gap-8" style="flex-wrap:wrap"><button class="btn btn-secondary btn-sm" onclick="showGenExpModal()">+ Add expense</button>'+_bkDownloads()+'</div></div></div>';
+  h+=_bkPeriodBar();
+  var st=_bkState();if(st)return h+st;
+  h+=_bkVehicleCard(d);
+  h+='<div class="stats-grid" style="grid-template-columns:repeat(4,1fr)">'+
+    '<div class="card stat-card"><div class="stat-label">Income</div><div class="stat-value" style="color:var(--success)">'+_wizGBP(s.turnover)+'</div><div class="stat-change">'+s.counts.income+' payments</div></div>'+
+    '<div class="card stat-card"><div class="stat-label">Expenses claimed</div><div class="stat-value" style="color:var(--danger)">'+_wizGBP(s.expenses_claimed)+'</div><div class="stat-change">incl. mileage '+_wizGBP(s.mileage_allowance)+'</div></div>'+
+    '<div class="card stat-card"><div class="stat-label">Net profit</div><div class="stat-value" style="color:var(--primary)">'+_wizGBP(s.net_profit)+'</div><div class="stat-change">before tax</div></div>'+
+    '<div class="card stat-card"><div class="stat-label">Money owed to you</div><div class="stat-value" style="color:var(--warning)">'+_wizGBP(s.owed)+'</div><div class="stat-change">'+s.counts.owed+' unpaid invoices</div></div></div>';
+  if(d.engineer.vat_registered)h+='<div class="card mb-16"><div class="fw-700">VAT in this period</div><div class="text-sm mt-8">VAT on your sales: <strong>'+_wizGBP(s.vat_charged)+'</strong> · VAT on your purchases: <strong>'+_wizGBP(s.vat_reclaimable)+'</strong> · Difference: <strong>'+_wizGBP(s.vat_charged-s.vat_reclaimable)+'</strong>'+
+    '<div class="text-muted" style="margin-top:4px">A guide for your VAT return — your VAT periods and scheme may differ. Only purchases where you entered the VAT are counted.</div></div></div>';
+  if(s.vehicle_costs_not_claimed>0)h+='<div class="text-sm text-muted mb-16">🚐 '+_wizGBP(s.vehicle_costs_not_claimed)+' of fuel and van costs are not claimed because you use the mileage allowance.</div>';
+  h+='<div class="grid-2"><div class="card"><div class="card-title mb-16">Self Assessment boxes</div>'+_bkBoxesTable(s)+'</div>';
+  var bycat={};(d.lines.expenses||[]).forEach(function(x){if(!x.claimed)return;var c=HMRC_CATS.find(function(h){return h.id===x.category});var k=c?c.icon+' '+c.label:(x.category||'Other');bycat[k]=(bycat[k]||0)+(+x.cost)});
+  if(s.platform_fees)bycat['🏷️ Platform fees']=s.platform_fees;if(s.mileage_allowance)bycat['🚐 Mileage allowance']=s.mileage_allowance;
+  var tot=0;Object.keys(bycat).forEach(function(k){tot+=bycat[k]});
+  h+='<div class="card"><div class="card-title mb-16">Where the money went</div>'+(Object.keys(bycat).length?Object.keys(bycat).sort(function(a,b){return bycat[b]-bycat[a]}).map(function(k){var pct=tot?Math.round(bycat[k]*100/tot):0;
+    return '<div style="margin-bottom:10px"><div class="flex-between"><div class="text-sm fw-700">'+esc(k)+'</div><div class="text-sm fw-700">'+_wizGBP(bycat[k])+' ('+pct+'%)</div></div><div class="progress-bar" style="margin-top:4px"><div class="progress-fill" style="width:'+pct+'%"></div></div></div>'}).join(''):'<div class="text-sm text-muted">No expenses in this period.</div>')+'</div></div>';
+  // Ledger
+  var all=booksLedger(d),f=books.filter,q=(f.q||'').toLowerCase();
+  var rows=all.filter(function(x){return (f.kind==='all'||x.kind===f.kind)&&(f.source==='all'||x.source===f.source)&&(!q||(x.desc+' '+x.ref+' '+x.type).toLowerCase().indexOf(q)!==-1)});
+  var pages=Math.max(1,Math.ceil(rows.length/50));if(books.page>=pages)books.page=pages-1;
+  var sel=function(k,opts){return '<select class="select" style="padding:5px 8px;font-size:12px" onchange="booksFilter(\''+k+'\',this.value)">'+opts.map(function(o){return '<option value="'+o[0]+'"'+(f[k]===o[0]?' selected':'')+'>'+o[1]+'</option>'}).join('')+'</select>'};
+  h+='<div class="card mt-24"><div class="card-header" style="flex-wrap:wrap;gap:8px"><div class="card-title">Ledger <span class="text-sm text-muted">'+rows.length.toLocaleString()+' entries</span></div><div class="flex gap-8" style="flex-wrap:wrap">'+
+    sel('kind',[['all','Everything'],['income','Money in'],['expense','Expenses'],['fee','Platform fees'],['mileage','Mileage']])+
+    sel('source',[['all','Any source'],['app','App'],['moti','Moti'],['import','Imported'],['marketplace','Marketplace']])+
+    '<input class="input" style="padding:5px 8px;font-size:12px;max-width:180px" placeholder="Search…" value="'+escAttr(f.q||'')+'" onchange="booksFilter(\'q\',this.value)"></div></div>';
+  if(!rows.length)h+='<div class="text-sm text-muted" style="padding:14px">Nothing here for this period.</div>';
+  else{
+    h+='<div class="table-wrap"><table style="width:100%;font-size:12.5px"><thead><tr><th>Date</th><th>Type</th><th>Details</th><th>Box</th><th>From</th><th style="text-align:right">Amount</th></tr></thead><tbody>'+
+      rows.slice(books.page*50,books.page*50+50).map(function(x){var neg=x.net<0;return '<tr'+(x.claimed?'':' style="opacity:.6"')+'><td style="white-space:nowrap">'+_wizUK(x.date)+'</td><td>'+esc(x.type)+(x.ref?'<div class="text-muted" style="font-size:11px">'+esc(x.ref)+'</div>':'')+'</td>'+
+        '<td style="max-width:260px">'+esc(x.desc)+(x.receipt===false&&x.kind==='expense'?' <span title="No receipt" style="font-size:11px">🧾✕</span>':'')+'</td><td style="font-size:11px">'+esc(x.box)+'</td><td>'+_bkSrc(x.imported?'import':x.source)+'</td>'+
+        '<td style="text-align:right;white-space:nowrap;font-weight:700;color:'+(neg?'var(--danger)':'var(--success)')+'">'+(neg?'−':'+')+_wizGBP(Math.abs(x.net))+'</td></tr>'}).join('')+'</tbody></table></div>';
+    if(pages>1)h+='<div class="flex gap-8 mt-8" style="justify-content:flex-end;align-items:center"><span class="text-sm text-muted">Page '+(books.page+1)+' of '+pages+'</span><button class="btn btn-secondary btn-sm" '+(books.page?'':'disabled')+' onclick="books.page--;render()">‹</button><button class="btn btn-secondary btn-sm" '+(books.page<pages-1?'':'disabled')+' onclick="books.page++;render()">›</button></div>';
+  }
+  h+='</div>';
+  if((d.lines.owed||[]).length)h+='<div class="card mt-24"><div class="card-title mb-16">Money owed to you</div><div class="table-wrap"><table style="width:100%;font-size:12.5px"><thead><tr><th>Invoice</th><th>Customer</th><th>Date</th><th>Due</th><th style="text-align:right">Amount</th></tr></thead><tbody>'+
+    d.lines.owed.slice(0,30).map(function(x){return '<tr><td>'+esc(x.number||'')+'</td><td>'+esc(x.customer||'')+'</td><td>'+_wizUK(x.date)+'</td><td'+(x.days_overdue>0?' style="color:var(--danger)"':'')+'>'+_wizUK(x.due)+(x.days_overdue>0?' ('+x.days_overdue+' days late)':'')+'</td><td style="text-align:right">'+_wizGBP(x.gross)+'</td></tr>'}).join('')+'</tbody></table></div>'+
+    (d.lines.owed.length>30?'<div class="text-sm text-muted mt-8">…and '+(d.lines.owed.length-30)+' more — all in the Excel download.</div>':'')+'</div>';
+  return h;
 }
 function pgTax(){
-  var t=calcTax();var boxes=calcSA103boxes();
-  // Count expenses with receipts
-  var withReceipt=generalExpenses.filter(function(e){return e.receipt}).length;
-  var totalGenExp=generalExpenses.length;
-  var receiptPct=totalGenExp?Math.round(withReceipt/totalGenExp*100):0;
-  // Category breakdown for pie-chart-like display
-  var catSums={};
-  generalExpenses.forEach(function(e){
-    var label=e.catLabel||e.cat;
-    catSums[label]=(catSums[label]||0)+e.amt;
-  });
-  var catBreakdown=Object.keys(catSums).sort(function(a,b){return catSums[b]-catSums[a]}).map(function(k){
-    var hcat=HMRC_CATS.find(function(c){return c.label===k});
-    return '<div class="breakdown-row"><div>'+(hcat?hcat.icon+' ':'')+k+'</div><div class="fw-700">£'+catSums[k].toFixed(2)+'</div></div>';
-  }).join('');
-  return '<div class="main-header"><div class="flex-between"><div><h1>Tax Dashboard</h1><p>Tax year 2025/26 (6 Apr 2025 – 5 Apr 2026) · Self Assessment</p></div><div class="flex gap-8"><button class="btn btn-primary" onclick="showSA103()">🏛️ Prepare SA103</button><button class="btn btn-secondary" onclick="printMainPage(\'Tax summary\')">📥 Export</button></div></div></div>'+
-    '<div class="stats-grid" style="grid-template-columns:repeat(4,1fr)">'+
-    '<div class="card tax-card"><div class="stat-label">Income Tax</div><div class="tax-amount" style="color:var(--danger);font-size:32px">£'+Math.round(t.incomeTax).toLocaleString()+'</div><div class="tax-sub">Basic rate (20%)</div></div>'+
-    '<div class="card tax-card"><div class="stat-label">National Insurance</div><div class="tax-amount" style="color:var(--warning);font-size:32px">£'+Math.round(t.class2+t.class4).toLocaleString()+'</div><div class="tax-sub">Class 2 + Class 4</div></div>'+
-    '<div class="card tax-card" style="background:var(--danger-light);border-color:rgba(239,68,68,.3)"><div class="stat-label" style="color:#991B1B">Total Tax Due</div><div class="tax-amount" style="color:#991B1B;font-size:32px">£'+Math.round(t.totalTax).toLocaleString()+'</div><div class="tax-sub" style="color:#991B1B">Set aside £'+Math.round(t.totalTax/12)+'/month</div></div>'+
-    '<div class="card tax-card" style="background:var(--success-light);border-color:rgba(16,185,129,.3)"><div class="stat-label" style="color:#065F46">Receipt Coverage</div><div class="tax-amount" style="color:#065F46;font-size:32px">'+receiptPct+'%</div><div class="tax-sub" style="color:#065F46">'+withReceipt+'/'+totalGenExp+' expenses have receipts</div></div></div>'+
-    '<div class="grid-2">'+
-    '<div class="card"><div class="card-title mb-16">Profit &amp; Loss Breakdown</div>'+
-    '<div class="breakdown-row"><div>Gross Income (SA103 Box 9)</div><div class="fw-700" style="color:var(--success)">£'+tax.grossIncome.toLocaleString()+'</div></div>'+
-    '<div class="breakdown-row"><div>Less: Business Expenses</div><div class="fw-700" style="color:var(--danger)">-£'+Math.round(boxes.box31.val).toLocaleString()+'</div></div>'+
-    '<div class="breakdown-row"><div>&nbsp;&nbsp;↳ Mileage ('+tax.totalMiles.toLocaleString()+' mi)</div><div class="text-muted">-£'+Math.round(t.mileageDed).toLocaleString()+'</div></div>'+
-    '<div class="breakdown-row total"><div>Taxable Profit (Box 32)</div><div>£'+Math.round(boxes.box32.val).toLocaleString()+'</div></div>'+
-    '<div class="breakdown-row"><div>Less: Personal Allowance</div><div>-£'+tax.personalAllowance.toLocaleString()+'</div></div>'+
-    '<div class="breakdown-row total"><div>Taxable Income</div><div>£'+Math.round(t.taxableIncome).toLocaleString()+'</div></div></div>'+
-    '<div class="card"><div class="card-title mb-16">Expenses by HMRC Category</div>'+
-    (catBreakdown||'<div class="text-center text-muted" style="padding:16px">No expenses recorded yet</div>')+
-    '</div></div>'+
-    '<div class="grid-2 mt-24">'+
-    '<div class="card"><div class="card-title mb-16">Tax Calculation</div>'+
-    '<div class="breakdown-row"><div>Income Tax (20% on £'+Math.round(t.taxableIncome).toLocaleString()+')</div><div class="fw-700">£'+Math.round(t.incomeTax).toLocaleString()+'</div></div>'+
-    '<div class="breakdown-row"><div>Class 2 NI (£'+tax.class2Weekly+'/week × 52)</div><div class="fw-700">£'+Math.round(t.class2)+'</div></div>'+
-    '<div class="breakdown-row"><div>Class 4 NI (6% on profit above £'+tax.class4Lower.toLocaleString()+')</div><div class="fw-700">£'+Math.round(t.class4).toLocaleString()+'</div></div>'+
-    '<div class="breakdown-row total"><div>Total Tax Due 2025/26</div><div style="color:var(--danger)">£'+Math.round(t.totalTax).toLocaleString()+'</div></div>'+
-    '<div style="margin-top:16px;padding:14px;background:var(--warning-light);border-radius:var(--radius)"><div class="fw-700" style="color:#92400E">Payment on Account</div><div class="text-sm" style="color:#92400E;margin-top:4px">31 Jan 2027: £'+Math.round(t.totalTax/2).toLocaleString()+' · 31 Jul 2027: £'+Math.round(t.totalTax/2).toLocaleString()+'</div></div></div>'+
-    '<div class="card"><div class="card-title mb-16">One-Button Tax Filing</div>'+
-    '<div style="text-align:center;padding:20px"><div style="font-size:48px;margin-bottom:12px">🏛️</div><div class="fw-800" style="font-size:18px">Ready to file your Self Assessment</div><div class="text-sm text-muted mt-8" style="line-height:1.7">Every job you completed, every expense you logged, every mile you drove — it\'s all been categorised into the correct HMRC boxes automatically.</div>'+
-    '<button class="btn btn-primary btn-lg mt-24" onclick="showSA103()" style="font-size:16px">🏛️ Prepare &amp; Review SA103</button>'+
-    '<div class="text-sm text-muted mt-16">Submits directly to HMRC via Making Tax Digital</div></div></div></div>'+
-    '<div class="card mt-24" style="background:var(--primary-light);border-color:rgba(13,148,136,.2)"><div style="display:flex;align-items:center;gap:14px"><div style="font-size:28px">✨</div><div><div class="fw-700" style="color:var(--primary-dark)">No Accountant Needed</div><div class="text-sm" style="color:var(--primary-dark);margin-top:4px;line-height:1.7">Your daily work on the job sheet is your accounting. Every job completion auto-records income, expenses go to the right HMRC box, mileage is calculated from addresses. At year end, one button files your tax return. HomeLinq turns gas engineers into tax-efficient businesses.</div></div></div></div>';
+  if(books.period.type!=='year'){books.period.type='year';books.key=''}
+  booksLoad();
+  var d=books.data,s=d&&d.summary,ty=books.period.ty,cur=booksTyStartYear(),yrs=[];for(var y=cur;y>=cur-5;y--)yrs.push(y);
+  var h='<div class="main-header"><div class="flex-between" style="flex-wrap:wrap;gap:10px"><div><h1>Tax Dashboard</h1><p>Self Assessment estimate · tax year '+booksTyName(ty)+' (6 Apr '+ty+' – 5 Apr '+(ty+1)+')</p></div>'+
+    '<div class="flex gap-8" style="flex-wrap:wrap"><select class="select" style="padding:6px 10px" onchange="booksSetPeriod(\'ty\',this.value)">'+yrs.map(function(y){return '<option value="'+y+'"'+(y===ty?' selected':'')+'>'+booksTyName(y)+(y===cur?' (this year)':'')+'</option>'}).join('')+'</select>'+
+    '<button class="btn btn-primary btn-sm" onclick="showSA103()">🏛️ SA103 summary</button>'+_bkDownloads()+'</div></div></div>';
+  var stt=_bkState();if(stt)return h+stt;
+  var t=booksTaxEstimate(s.net_profit,ty);
+  h+=_bkVehicleCard(d);
+  h+='<div class="stats-grid" style="grid-template-columns:repeat(4,1fr)">'+
+    '<div class="card tax-card"><div class="stat-label">Net profit</div><div class="tax-amount" style="font-size:28px">'+_wizGBP(s.net_profit)+'</div><div class="tax-sub">income '+_wizGBP(s.turnover)+' − expenses '+_wizGBP(s.expenses_claimed)+'</div></div>'+
+    '<div class="card tax-card"><div class="stat-label">Income Tax</div><div class="tax-amount" style="color:var(--danger);font-size:28px">'+_wizGBP(t.incomeTax)+'</div><div class="tax-sub">after personal allowance '+_wizGBP(t.personalAllowance)+'</div></div>'+
+    '<div class="card tax-card"><div class="stat-label">Class 4 National Insurance</div><div class="tax-amount" style="color:var(--warning);font-size:28px">'+_wizGBP(t.class4)+'</div><div class="tax-sub">6% / 2% on profits</div></div>'+
+    '<div class="card tax-card" style="background:var(--danger-light)"><div class="stat-label" style="color:#991B1B">Estimated tax</div><div class="tax-amount" style="color:#991B1B;font-size:28px">'+_wizGBP(t.total)+'</div><div class="tax-sub">for this tax year so far</div></div></div>';
+  var R=BOOKS_RATES[t.ratesYear];
+  h+='<div class="grid-2"><div class="card"><div class="card-title mb-16">How it\'s worked out</div>'+
+    '<div class="breakdown-row"><div>Income (turnover)</div><div class="fw-700" style="color:var(--success)">'+_wizGBP(s.turnover)+'</div></div>'+
+    '<div class="breakdown-row"><div>Less allowable expenses</div><div class="fw-700" style="color:var(--danger)">−'+_wizGBP(s.expenses_claimed)+'</div></div>'+
+    '<div class="breakdown-row total"><div>Net profit</div><div>'+_wizGBP(s.net_profit)+'</div></div>'+
+    '<div class="breakdown-row"><div>Personal allowance'+(t.personalAllowance<R.pa?' (reduced above £100,000)':'')+'</div><div>−'+_wizGBP(t.personalAllowance)+'</div></div>'+
+    '<div class="breakdown-row"><div>Basic rate 20% on '+_wizGBP(t.basic)+'</div><div>'+_wizGBP(t.basic*R.basic)+'</div></div>'+
+    (t.higher?'<div class="breakdown-row"><div>Higher rate 40% on '+_wizGBP(t.higher)+'</div><div>'+_wizGBP(t.higher*R.higher)+'</div></div>':'')+
+    (t.additional?'<div class="breakdown-row"><div>Additional rate 45% on '+_wizGBP(t.additional)+'</div><div>'+_wizGBP(t.additional*R.additional)+'</div></div>':'')+
+    '<div class="breakdown-row"><div>Class 4 NI: 6% on profits £12,570–£50,270, 2% above</div><div>'+_wizGBP(t.class4)+'</div></div>'+
+    '<div class="breakdown-row total"><div>Estimated tax</div><div style="color:var(--danger)">'+_wizGBP(t.total)+'</div></div>'+
+    (t.total>1000?'<div style="margin-top:12px;padding:12px;background:var(--warning-light);border-radius:var(--radius)" class="text-sm"><strong>Payments on account:</strong> if your last bill was over £1,000, HMRC usually asks for two advance payments for the next year (31 January and 31 July), each about half of this year\'s bill — roughly '+_wizGBP(t.total/2)+'. Your accountant or HMRC account will confirm the exact amounts.</div>':'')+
+    '</div><div class="card"><div class="card-title mb-16">Self Assessment boxes</div>'+_bkBoxesTable(s)+'</div></div>';
+  h+='<div class="card mt-24" style="background:var(--primary-light)"><div class="fw-700" style="color:var(--primary-dark)">Making Tax Digital for Income Tax</div><div class="text-sm mt-8" style="color:var(--primary-dark);line-height:1.6">'+
+    'Sole traders with income over £50,000 must keep digital records and send quarterly updates to HMRC from 6 April 2026 — over £30,000 from April 2027, and over £20,000 from April 2028. '+
+    'HomeLinq keeps your digital records and gives you quarterly downloads (choose Q1–Q4 on the Accounting page) for your accountant or MTD bridging software. <strong>HomeLinq does not send anything to HMRC itself.</strong></div></div>';
+  h+='<div class="text-sm text-muted mt-16" style="line-height:1.6">This is an estimate from your HomeLinq records using '+booksTyName(t.ratesYear)+' rates for England, Wales and Northern Ireland (Scotland has different income tax rates). '+
+    'It doesn\'t include other income, pension contributions, student loans, Gift Aid or allowances like Marriage Allowance. Always check with your accountant or HMRC before you file.</div>';
+  return h;
 }
+function showSA103(){
+  var d=books.data;if(!d){toast('warning','Your books are still loading');return}
+  var s=d.summary,e=d.engineer,t=booksTaxEstimate(s.net_profit,books.period.ty);
+  var ov=document.createElement('div');ov.className='cascade-overlay';ov.id='sa103Overlay';ov.onclick=function(ev){if(ev.target===ov)ov.remove()};
+  ov.innerHTML='<div class="cascade-panel" style="max-width:640px;max-height:92vh;overflow-y:auto"><div style="text-align:center;margin-bottom:16px;padding-bottom:12px;border-bottom:2px solid var(--border)">'+
+    '<div style="font-size:19px;font-weight:900">Self-employment (full) — SA103F figures</div><div class="text-sm text-muted mt-8">'+esc(e.name||'')+(e.business?' · '+esc(e.business):'')+(e.utr?' · UTR '+esc(e.utr):'')+'<br>'+esc(booksPeriodName(books.period))+' · '+(e.basis==='accruals'?'accruals basis':'cash basis')+'</div></div>'+
+    _bkBoxesTable(s)+
+    '<div class="breakdown-row mt-16"><div>Estimated Income Tax</div><div class="fw-700">'+_wizGBP(t.incomeTax)+'</div></div><div class="breakdown-row"><div>Estimated Class 4 NI</div><div class="fw-700">'+_wizGBP(t.class4)+'</div></div>'+
+    '<div class="text-sm text-muted mt-16">HomeLinq does not file with HMRC. Use these figures to complete your return on GOV.UK or give them to your accountant. Box numbers follow the SA103F form; turnover is your trading income in box 15.</div>'+
+    '<div class="flex gap-8 mt-16" style="flex-wrap:wrap"><button class="btn btn-primary" onclick="printElementById(\'sa103Overlay\',\'SA103 summary\')">🖨️ Print / Save as PDF</button><button class="btn btn-secondary" onclick="booksDownload(\'xlsx\')">📊 Excel</button><button class="btn btn-secondary" onclick="document.getElementById(\'sa103Overlay\').remove()">Close</button></div></div>';
+  document.body.appendChild(ov);
+}
+function pgMileage(){
+  booksLoad();
+  var d=books.data,s=d&&d.summary;
+  var h='<div class="main-header"><div class="flex-between" style="flex-wrap:wrap;gap:10px"><div><h1>Mileage</h1><p>Business miles from your jobs and trips you add. HMRC mileage allowance: 45p a mile for the first 10,000 business miles each tax year, then 25p.</p></div>'+
+    '<div class="flex gap-8"><button class="btn btn-primary" onclick="showMileageEntry()">+ Add a trip</button></div></div></div>';
+  h+=_bkPeriodBar();
+  var stt=_bkState();if(stt)return h+stt;
+  var allow=d.engineer.vehicle_method_effective==='mileage_allowance';
+  h+=_bkVehicleCard(d);
+  h+='<div class="stats-grid"><div class="card stat-card"><div class="stat-label">Business miles</div><div class="stat-value">'+Number(s.business_miles).toLocaleString()+'</div><div class="stat-change">'+s.counts.trips+' trips</div></div>'+
+    '<div class="card stat-card" style="background:var(--success-light)"><div class="stat-label" style="color:#065F46">Mileage allowance</div><div class="stat-value" style="color:#065F46">'+(allow?_wizGBP(s.mileage_allowance):'—')+'</div><div class="stat-change">'+(allow?'claimed in box 20':'you claim actual van costs instead')+'</div></div>'+
+    '<div class="card stat-card"><div class="stat-label">How you claim</div><div class="stat-value" style="font-size:16px">'+(allow?'Mileage allowance':'Actual van costs')+'</div><div class="stat-change"><a href="#" onclick="booksSaveSetting(\'vehicle_method\',\''+(allow?'actual_costs':'mileage_allowance')+'\');return false">Switch to '+(allow?'actual costs':'mileage allowance')+'</a></div></div></div>';
+  var trips=d.lines.mileage||[];
+  h+='<div class="card"><div class="card-header"><div class="card-title">Trips</div><button class="btn btn-secondary btn-sm" onclick="booksDownload(\'xlsx\')">📊 Download</button></div>'+
+    (trips.length?'<div class="table-wrap"><table style="width:100%;font-size:12.5px"><thead><tr><th>Date</th><th>Customer</th><th>From → To</th><th>Miles</th><th style="text-align:right">Allowance</th></tr></thead><tbody>'+
+      trips.slice().reverse().slice(0,200).map(function(m){return '<tr><td>'+_wizUK(m.date)+'</td><td>'+esc(m.customer||'')+'</td><td class="text-muted">'+esc(m.from||'')+(m.to?' → '+esc(m.to):'')+'</td><td>'+m.miles+'</td><td style="text-align:right">'+(allow?_wizGBP(m.allowance):'—')+'</td></tr>'}).join('')+'</tbody></table></div>':
+      '<div class="text-sm text-muted" style="padding:14px">No trips in this period. Trips are added when you complete jobs, or tap “+ Add a trip”.</div>')+'</div>';
+  return h;
+}
+function showMileageEntry(){
+  var ov=document.createElement('div');ov.className='cascade-overlay';ov.id='mileEntry';ov.onclick=function(ev){if(ev.target===ov)ov.remove()};
+  ov.innerHTML='<div class="cascade-panel" style="max-width:420px"><div class="fw-800" style="font-size:18px;margin-bottom:12px">🚐 Add a business trip</div>'+
+    '<div class="field"><div class="label">Date</div><input type="date" id="me-date" class="input" value="'+localDateKey(new Date())+'"></div>'+
+    '<div class="field"><div class="label">Customer or reason</div><input id="me-cust" class="input" placeholder="e.g. City Plumbing — parts collection"></div>'+
+    '<div class="grid-2"><div class="field"><div class="label">From</div><input id="me-from" class="input" placeholder="Home"></div><div class="field"><div class="label">To</div><input id="me-to" class="input" placeholder="Address or postcode"></div></div>'+
+    '<div class="grid-2"><div class="field"><div class="label">Miles there</div><input id="me-out" class="input" type="number" step="0.1"></div><div class="field"><div class="label">Miles back</div><input id="me-ret" class="input" type="number" step="0.1" placeholder="0"></div></div>'+
+    '<div class="text-sm text-muted">Only business journeys count — not your normal commute to a permanent workplace.</div>'+
+    '<div class="flex gap-8 mt-16"><button class="btn btn-primary" onclick="saveMileageEntry()">Save trip</button><button class="btn btn-secondary" onclick="document.getElementById(\'mileEntry\').remove()">Cancel</button></div></div>';
+  document.body.appendChild(ov);
+}
+function saveMileageEntry(){
+  var g=function(id){var el=document.getElementById(id);return el?String(el.value||'').trim():''};
+  var out=parseFloat(g('me-out'))||0,ret=parseFloat(g('me-ret'))||0,date=g('me-date');
+  if(!date||out<=0){toast('error','Enter the date and the miles');return}
+  if(out+ret>2000){toast('error','That looks too far for one trip — check the miles');return}
+  if(!currentUser)return;
+  sb.from('mileage_log').insert({engineer_id:currentUser.id,date:date,customer_name:g('me-cust'),from_location:g('me-from')||'Home',to_location:g('me-to'),miles_out:out,miles_return:ret}).then(function(res){
+    if(res.error){toast('error','Trip not saved: '+res.error.message);return}
+    mileageLog.unshift({date:date,cust:g('me-cust'),from:g('me-from')||'Home',to:g('me-to'),mi:out,ret:ret});
+    var el=document.getElementById('mileEntry');if(el)el.remove();toast('success','Trip saved — '+(out+ret)+' miles');booksRefresh();render();
+  });
+}
+function _bkSettingsCard(){
+  var vm=S.engineer.vehicleMethod||'',ab=S.engineer.accountingBasis||'cash';
+  var opt=function(field,val,cur,label){return '<button class="btn '+(cur===val?'btn-primary':'btn-secondary')+' btn-sm" onclick="booksSaveSetting(\''+field+'\',\''+val+'\')">'+label+'</button>'};
+  return '<div class="card mb-16"><div class="card-title mb-16">📒 Books &amp; tax</div>'+
+    '<div class="fw-700 text-sm">Van costs</div><div class="text-sm text-muted mb-8">Claim the mileage allowance (45p/25p a mile) or your actual van costs — not both.'+(vm?'':' Not chosen yet: mileage allowance is used.')+'</div>'+
+    '<div class="flex gap-8 mb-16">'+opt('vehicle_method','mileage_allowance',vm,'Mileage allowance')+opt('vehicle_method','actual_costs',vm,'Actual van costs')+'</div>'+
+    '<div class="fw-700 text-sm">How income is counted</div><div class="text-sm text-muted mb-8">Cash basis (the default for sole traders) counts income when you\'re paid. Accruals counts it when you invoice — only if you\'ve chosen accruals with HMRC.</div>'+
+    '<div class="flex gap-8">'+opt('accounting_basis','cash',ab,'Cash basis')+opt('accounting_basis','accruals',ab,'Accruals')+'</div></div>';
+}
+function _bkFileBase(d){var r=d.period;return 'HomeLinq-books_'+r.from+'_to_'+r.to}
+function _bkSave(blob,name){var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();document.body.removeChild(a);setTimeout(function(){URL.revokeObjectURL(a.href)},2000)}
+function _bkR2(n){return Math.round((Number(n)||0)*100)/100}
+// The rows every download uses (so Excel, CSV and PDF always agree with the screen)
+function _bkSheets(d){
+  var s=d.summary,e=d.engineer,L=d.lines,allow=e.vehicle_method_effective==='mileage_allowance';
+  var est=booksTaxEstimate(s.net_profit,booksTyStartYear(d.period.from));
+  var summary=[['HomeLinq — books for your accountant',''],['Name',e.name||''],['Business',e.business||''],['UTR',e.utr||''],['VAT registered',e.vat_registered?'Yes'+(e.vat_number?' ('+e.vat_number+')':''):'No'],
+    ['Period',_wizUK(d.period.from)+' to '+_wizUK(d.period.to)],['Basis',e.basis==='accruals'?'Accruals (income when invoiced)':'Cash basis (income when paid)'],
+    ['Van costs',allow?'Mileage allowance (45p/25p) — fuel & van costs not claimed':'Actual van costs'],['Imported history included',d.include_imported?'Yes':'No'],['',''],
+    ['Turnover (box 15)',_bkR2(s.turnover)]];
+  BOOKS_BOXES.forEach(function(b){var v=s.boxes&&s.boxes[b[0]];if(v)summary.push(['Box '+b[0]+' — '+b[1],_bkR2(v)])});
+  summary.push(['Total expenses (box 31)',_bkR2(s.expenses_claimed)],['Net profit',_bkR2(s.net_profit)],['',''],
+    ['Business miles',s.business_miles],['Mileage allowance',_bkR2(s.mileage_allowance)],['Platform fees',_bkR2(s.platform_fees)],['Fuel & van costs not claimed',_bkR2(s.vehicle_costs_not_claimed)],['Money owed to you at period end',_bkR2(s.owed)]);
+  if(e.vat_registered)summary.push(['',''],['VAT on sales',_bkR2(s.vat_charged)],['VAT on purchases (where entered)',_bkR2(s.vat_reclaimable)]);
+  summary.push(['',''],['Estimated Income Tax (England/Wales/NI rates)',_bkR2(est.incomeTax)],['Estimated Class 4 NI',_bkR2(est.class4)],['',''],
+    ['Note','Estimate from HomeLinq records only. HomeLinq does not file with HMRC. Check with your accountant.']);
+  var income=(L.income||[]).map(function(x){return {Date:x.date,Type:x.kind==='marketplace'?'Marketplace payment':'Invoice',Number:x.number||'',Customer:x.customer||'',Description:x.description||'',Net:_bkR2(x.net),VAT:_bkR2(x.vat),Gross:_bkR2(x.gross),Method:x.method||'',Source:x.source,Imported:x.imported?'Yes':''}});
+  var exps=(L.expenses||[]).map(function(x){var c=HMRC_CATS.find(function(h){return h.id===x.category});return {Date:x.date,Type:x.kind==='job'?'Job expense':'Expense',Job:x.job_number||'',Description:x.description||'',Category:c?c.label:(x.category||''),
+    'SA103 box':x.claimed?x.box:'Not claimed',Paid:_bkR2(x.amount),VAT:_bkR2(x.vat),Cost:_bkR2(x.cost),Receipt:x.receipt?'Yes':'No','Re-charged':x.billable?'Yes':'',Source:x.source,Imported:x.imported?'Yes':''}});
+  (L.fees||[]).forEach(function(x){exps.push({Date:x.date,Type:'Platform fee',Job:'',Description:x.description,Category:'Platform fees','SA103 box':30,Paid:_bkR2(x.amount),VAT:0,Cost:_bkR2(x.cost),Receipt:'HomeLinq statement','Re-charged':'',Source:'marketplace',Imported:''})});
+  var miles=(L.mileage||[]).map(function(x){return {Date:x.date,Customer:x.customer||'',From:x.from||'',To:x.to||'',Miles:x.miles,Allowance:allow?_bkR2(x.allowance):0,Source:x.source}});
+  var owed=(L.owed||[]).map(function(x){return {Invoice:x.number||'',Customer:x.customer||'',Date:x.date,Due:x.due||'','Days late':x.days_overdue,Amount:_bkR2(x.gross),Imported:x.imported?'Yes':''}});
+  var ledger=booksLedger(d).map(function(x){return {Date:x.date,Type:x.type,Reference:x.ref,Details:x.desc,'SA103':x.box,Net:_bkR2(x.net),VAT:_bkR2(x.vat),Gross:_bkR2(x.gross),Claimed:x.claimed?'Yes':'No',Source:x.imported?'import':x.source}});
+  var imported=income.filter(function(r){return r.Imported}).concat(exps.filter(function(r){return r.Imported}));
+  return {summary:summary,income:income,exps:exps,miles:miles,owed:owed,ledger:ledger,imported:imported};
+}
+function booksDownload(kind){
+  var d=books.data;if(!d){toast('warning','Your books are still loading');return}
+  var S2=_bkSheets(d),base=_bkFileBase(d);
+  if(kind==='csv'){
+    if(!S2.ledger.length){toast('warning','Nothing in this period to download');return}
+    _bkSave(new Blob([Papa.unparse(S2.ledger)],{type:'text/csv;charset=utf-8;'}),base+'_ledger.csv');toast('success','CSV ledger downloaded');return;
+  }
+  if(kind==='xlsx'){
+    toast('info','Preparing your Excel workbook…');
+    _loadSheetJS(function(err){
+      if(err){toast('error',err);return}
+      var X=window.XLSX,wb=X.utils.book_new();
+      var add=function(name,rows,isAoa){var ws=isAoa?X.utils.aoa_to_sheet(rows):X.utils.json_to_sheet(rows.length?rows:[{Note:'Nothing in this period'}]);X.utils.book_append_sheet(wb,ws,name)};
+      add('Summary',S2.summary,true);add('Income',S2.income);add('Expenses',S2.exps);add('Mileage',S2.miles);add('Money owed',S2.owed);add('Ledger',S2.ledger);
+      if(d.engineer.vat_registered)add('VAT',[['VAT on sales',_bkR2(d.summary.vat_charged)],['VAT on purchases (where entered)',_bkR2(d.summary.vat_reclaimable)],['Difference',_bkR2(d.summary.vat_charged-d.summary.vat_reclaimable)],['',''],['Note','A guide only — your VAT return periods and scheme may differ.']],true);
+      if(S2.imported.length)add('Imported history',S2.imported);
+      X.writeFile(wb,base+'.xlsx');toast('success','Excel workbook downloaded');
+    });
+    return;
+  }
+  if(kind==='pdf'){
+    if(!window.jspdf){toast('error','PDF tools still loading — try again in a moment');return}
+    var doc=new window.jspdf.jsPDF({unit:'mm',format:'a4'}),e=d.engineer,s=d.summary,m=14,y=16;
+    doc.setFontSize(16);doc.setFont(undefined,'bold');doc.text('Books summary',m,y);y+=7;
+    doc.setFontSize(10);doc.setFont(undefined,'normal');
+    [e.name||'',(e.business||''),(e.utr?'UTR '+e.utr:''),booksPeriodName(books.period),(e.basis==='accruals'?'Accruals basis':'Cash basis')+' · '+(e.vehicle_method_effective==='mileage_allowance'?'mileage allowance':'actual van costs')].forEach(function(t){if(t){doc.text(String(t),m,y);y+=5}});
+    var boxRows=[['15','Turnover',_wizGBP(s.turnover)]];BOOKS_BOXES.forEach(function(b){var v=s.boxes&&s.boxes[b[0]];if(v)boxRows.push([String(b[0]),b[1],_wizGBP(v)])});
+    boxRows.push(['31','Total expenses',_wizGBP(s.expenses_claimed)],['','Net profit',_wizGBP(s.net_profit)]);
+    doc.autoTable({startY:y+2,head:[['Box','Self Assessment (SA103F)','Amount']],body:boxRows,styles:{fontSize:9},headStyles:{fillColor:[13,148,136]},columnStyles:{2:{halign:'right'}}});
+    y=doc.lastAutoTable.finalY+6;
+    var est=booksTaxEstimate(s.net_profit,booksTyStartYear(d.period.from));
+    var other=[['Business miles',String(s.business_miles)],['Mileage allowance',_wizGBP(s.mileage_allowance)],['Platform fees',_wizGBP(s.platform_fees)],['Fuel & van costs not claimed',_wizGBP(s.vehicle_costs_not_claimed)],['Money owed to you',_wizGBP(s.owed)]];
+    if(e.vat_registered)other.push(['VAT on sales',_wizGBP(s.vat_charged)],['VAT on purchases (where entered)',_wizGBP(s.vat_reclaimable)]);
+    other.push(['Estimated Income Tax',_wizGBP(est.incomeTax)],['Estimated Class 4 NI',_wizGBP(est.class4)]);
+    doc.autoTable({startY:y,body:other,styles:{fontSize:9},columnStyles:{1:{halign:'right'}}});
+    y=doc.lastAutoTable.finalY+8;doc.setFontSize(8);
+    doc.text(doc.splitTextToSize('Estimate from HomeLinq records (England, Wales & NI rates). HomeLinq does not file with HMRC. The Excel download has every transaction. Generated '+_wizUK(localDateKey(new Date()))+'.',180),m,y);
+    doc.save(base+'.pdf');toast('success','PDF summary downloaded');
+  }
+}
+// Settings → Export My Data: expenses and mileage come from the database (this and last tax year)
+function booksQuickExport(kind){
+  if(!currentUser)return;var y=booksTyStartYear();
+  sb.rpc('get_books',{p_from:(y-1)+'-04-06',p_to:localDateKey(new Date()),p_lines:true,p_include_imported:true}).then(function(res){
+    if(res.error){toast('error','Export failed: '+res.error.message);return}
+    var S2=_bkSheets(res.data);var rows=kind==='mileage'?S2.miles:S2.exps;
+    if(!rows.length){toast('error','No '+kind+' to export');return}
+    _bkSave(new Blob([Papa.unparse(rows)],{type:'text/csv;charset=utf-8;'}),'homelinq_'+kind+'_'+localDateKey(new Date())+'.csv');toast('success',rows.length+' rows exported');
+  });
+}
+
+
+// ===== MILEAGE =====
+
+// ===== TAX DASHBOARD =====
 
 // ===== REMINDERS =====
 function pgReminders(){
@@ -10084,7 +10354,7 @@ function _wizRow(f,row,ix){
     o.keys.push(ref?'n:IMP-'+ref.toUpperCase():'k:'+d+'|'+_wizNameKey(cust)+'|'+desc.toLowerCase());
     o.rec={engineer_id:uid,job_number:'IMP-'+(ref||tag+'-'+(ix+1)),scheduled_date:d,scheduled_time:_impStr(get('time'))||'09:00',
       customer_name:cust,customer_email:cj.e,customer_phone:cj.p,address:_impStr(get('address')),postcode:_impStr(get('postcode')).toUpperCase(),
-      description:desc,price:pr.v,status:_impJobStatus(get('status')),source:'direct'};
+      description:desc,price:pr.v,status:_impJobStatus(get('status')),source:'direct',created_via:'import'};
   }else if(f.type==='invoices'){
     var ci=_impStr(get('customer'));if(!ci)r.push('no_customer');
     var tt=_wizMoney(get('total'));if(tt.e)r.push('no_total');else if(tt.bad)r.push('bad_amount');
@@ -10099,7 +10369,7 @@ function _wizRow(f,row,ix){
     o.rec={engineer_id:uid,invoice_number:num,customer_name:ci,customer_email:_impStr(get('email')),
       description:_impStr(get('items'))||'Imported invoice',amount:Math.round((tt.v-vt.v)*100)/100,vat:vt.v,total:tt.v,status:st,
       sent_date:di?di+'T12:00:00Z':null,due_date:due,paid_date:st==='paid'?(di?di+'T12:00:00Z':new Date().toISOString()):null,
-      chase_count:0,meta:{imported:true,originalNumber:orig}};
+      chase_count:0,meta:{imported:true,originalNumber:orig},created_via:'import'};
   }else if(f.type==='certificates'){
     var prop=_impStr(get('prop'));if(!prop)r.push('no_prop');
     var dc=[];var issue=_wizDateChk(get('date'),df,dc,'x');var exp=_wizDateChk(get('expiry'),df,dc,'x');if(dc.length)r.push('date_dropped');
@@ -10124,7 +10394,7 @@ function _wizRow(f,row,ix){
     var vendor=_impStr(get('vendor'));var cat=_impStr(get('category'));var fullDesc=ds+(vendor?' ('+vendor+')':'');
     o.date=dx;o.amount=am.v;
     o.keys.push('k:'+(dx||'')+'|'+am.v+'|'+fullDesc.toLowerCase());
-    o.rec={engineer_id:uid,date:dx||today,description:fullDesc,amount:am.v,category:(cat||'other').toLowerCase(),category_label:cat||'Other',has_receipt:false};
+    o.rec={engineer_id:uid,date:dx||today,description:fullDesc,amount:am.v,category:(cat||'other').toLowerCase(),category_label:cat||'Other',has_receipt:false,created_via:'import'};
   }
   o.bad=r.some(function(x){return WIZ_BAD[x]});
   return o;
@@ -10474,7 +10744,10 @@ function _wizFinish(){
   var anyOk=wiz.results.some(function(r){return r.imported>0||r.updated>0});
   var anyFail=wiz.results.some(function(r){return r.failed>0});
   sb.from('import_batches').update({status:anyFail&&!anyOk?'failed':'done',counts:counts,finished_at:new Date().toISOString(),
-    progress:{results:wiz.results,fills:(wiz.priorFills||[]).concat(wiz.fillsDone||[]),saved_at:new Date().toISOString()}}).eq('id',wiz.batchId).then(function(){});
+    progress:{results:wiz.results,fills:(wiz.priorFills||[]).concat(wiz.fillsDone||[]),saved_at:new Date().toISOString()}}).eq('id',wiz.batchId).then(function(){
+    if(anyOk)sb.rpc('log_import_activity',{p_batch:wiz.batchId}).then(function(r){if(r.error)console.log('activity log:',r.error.message)});
+    if(anyOk)booksRefresh();
+  });
   wiz.step='done';render();
   // Confirmed formats become shared templates (column names only) so the next engineer's import is instant
   wiz.files.forEach(function(f){if(f._result&&f._result.imported>0&&!f._result.failed&&!(f.ai&&f.ai.fromTemplate))_wizSaveTemplate(f)});
@@ -10942,9 +11215,9 @@ function exportData(type){
   } else if(type==='certificates'){
     data=cp12Certs.map(function(c){return{ID:c.id,Type:c.certType||'',Recipient:c.recipientName||c.tenant||c.landlord||'',Email:c.recipientEmail||'',Property:c.prop||'',Date:c.date||'',Expiry:c.expiry||'',Result:c.result||'',Sent:c.sent?'Yes':'No'}});
   } else if(type==='expenses'){
-    data=expenses.map(function(e){return{Date:e.date||'',Amount:e.amount||0,Category:e.category||'',Description:e.desc||'',Vendor:e.vendor||''}});
+    booksQuickExport('expenses');return;
   } else if(type==='mileage'){
-    data=mileageLog.map(function(m){return{Date:m.date||'',From:m.from||'',To:m.to||'',Miles:m.miles||0,Job:m.job||''}});
+    booksQuickExport('mileage');return;
   }
   if(data.length===0){toast('error','No '+type+' data to export');return}
   var csv=Papa.unparse(data);
@@ -11044,6 +11317,8 @@ function pgSettings(){
     '<div class="toggle-row"><div><div class="fw-700">Auto-send invoices</div><div class="text-sm text-muted">Email invoices on job completion</div></div><button class="toggle" onclick="this.classList.toggle(\'on\')"></button></div>'+
     '<div class="toggle-row"><div><div class="fw-700">Auto-record transactions</div><div class="text-sm text-muted">Every invoice becomes an accounting entry</div></div><button class="toggle on" onclick="this.classList.toggle(\'on\')"></button></div>'+
     '<div class="toggle-row"><div><div class="fw-700">Require approval before sending</div><div class="text-sm text-muted">Review every SMS/email first</div></div><button class="toggle on" onclick="this.classList.toggle(\'on\')"></button></div></div>'+
+    '<div class="card mb-16"><div class="flex-between" style="gap:10px;flex-wrap:wrap"><div><div class="card-title">🤖 Moti activity</div><div class="text-sm text-muted">Everything Moti suggested and did for you.</div></div><button class="btn btn-secondary btn-sm" onclick="go(\'motiActivity\')">Open</button></div></div>'+
+    _bkSettingsCard()+
     '<div class="card mb-16" style="border:2px solid var(--primary)"><div class="card-title mb-16" style="color:var(--primary)">📥 Import Data — Switch to HomeLinq</div>'+
     '<p class="text-sm text-muted mb-16">Bring your customers, jobs, invoices, certificates and expenses from Commusoft, Gas Engineer Software, Tradify, Joblogic, ServiceM8, BigChange or any spreadsheet. CSV or Excel, several files at once.</p>'+
     '<button class="btn btn-primary" onclick="openImportWizard()">📥 Start import</button></div>'+
@@ -11054,8 +11329,8 @@ function pgSettings(){
     '<button class="btn btn-sm btn-secondary" onclick="exportData(\'jobs\')">📋 Jobs ('+getAllJobsFlat().length+')</button>'+
     '<button class="btn btn-sm btn-secondary" onclick="exportData(\'invoices\')">📄 Invoices ('+invoices.length+')</button>'+
     '<button class="btn btn-sm btn-secondary" onclick="exportData(\'certificates\')">📜 Certificates ('+cp12Certs.length+')</button>'+
-    '<button class="btn btn-sm btn-secondary" onclick="exportData(\'expenses\')">💸 Expenses ('+expenses.length+')</button>'+
-    '<button class="btn btn-sm btn-secondary" onclick="exportData(\'mileage\')">🚐 Mileage ('+mileageLog.length+')</button>'+
+    '<button class="btn btn-sm btn-secondary" onclick="booksQuickExport(\'expenses\')">💸 Expenses</button>'+
+    '<button class="btn btn-sm btn-secondary" onclick="booksQuickExport(\'mileage\')">🚐 Mileage</button>'+
     '</div></div>'+
     '<div class="card mb-16"><div class="card-title mb-16">Legal</div>'+
     '<div style="display:flex;gap:12px"><a href="privacy.html" target="_blank" class="btn btn-secondary btn-sm">Privacy Policy</a><a href="terms.html" target="_blank" class="btn btn-secondary btn-sm">Terms of Service</a></div></div>'+
@@ -11638,7 +11913,8 @@ function saveExpenseToSupabase(exp) {
     amount: exp.amt,
     category: exp.cat,
     category_label: exp.catLabel,
-    has_receipt: exp.receipt
+    has_receipt: exp.receipt,
+    vat: exp.vat || 0
   };
   sb.from('general_expenses').upsert(data).then(function(res) {
     if(res.error)console.log('Save expense error:',res.error.message);

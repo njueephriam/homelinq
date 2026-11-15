@@ -89,6 +89,17 @@
       + ".mtw-imp .mtw-cl{font-weight:700;margin-bottom:4px;color:#D4F500}"
       + ".mtw-imp button{margin:8px 6px 0 0;border-radius:9px;padding:7px 11px;font-family:inherit;font-size:12.5px;font-weight:700;cursor:pointer;border:1px solid #D4F500;background:#D4F500;color:#15170a}"
       + ".mtw-imp button.mtw-sec{background:transparent;color:#D4F500}"
+      + ".mtw-photo{align-self:flex-end;max-width:70%;border-radius:12px;border:1px solid #2C2F39;overflow:hidden}"
+      + ".mtw-photo img{display:block;max-width:100%;max-height:220px}"
+      + ".mtw-check{align-self:flex-start;max-width:92%;background:#212430;border:1px solid #D4F500;border-radius:12px;padding:11px 12px;font-size:13px;color:#F4F4F0}"
+      + ".mtw-check .mtw-cl{font-weight:700;margin-bottom:6px;color:#D4F500}"
+      + ".mtw-check label{display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-top:1px solid #2C2F39;cursor:pointer;line-height:1.35}"
+      + ".mtw-check label:first-of-type{border-top:none}"
+      + ".mtw-check input{margin-top:2px;accent-color:#D4F500}"
+      + ".mtw-check .mtw-res{font-size:12px;margin-left:24px;padding-bottom:4px}"
+      + ".mtw-check button{margin:8px 6px 0 0;border-radius:9px;padding:7px 11px;font-family:inherit;font-size:12.5px;font-weight:700;cursor:pointer;border:1px solid #D4F500;background:#D4F500;color:#15170a}"
+      + ".mtw-check button.mtw-sec{background:transparent;color:#D4F500}"
+      + ".mtw-check button:disabled{opacity:.5;cursor:default}"
       + ".mtw-svg .mtw-eye{transform-box:fill-box;transform-origin:center;animation:mtwblink 5.4s infinite}"
       + ".mtw-svg .mtw-eye2{animation-delay:.06s}"
       + "@keyframes mtwblink{0%,94%,100%{transform:scaleY(1)}97%{transform:scaleY(.12)}}";
@@ -113,7 +124,8 @@
       '<circle cx="24" cy="76" r="2.5" fill="#D4F500"/><circle cx="116" cy="76" r="2.5" fill="#D4F500"/></svg>';
   }
 
-  var fab, panel, bodyEl, chipsEl, inputEl, fileEl, attEl, started = false, busy = false;
+  var fab, panel, bodyEl, chipsEl, inputEl, fileEl, attEl, camEl, imgEl, started = false, busy = false;
+  var lastPhoto = null; /* the photo sent most recently: { blob } — uploaded only if "keep this photo" is approved */
   var IMPORT_INTENT = /\b(import(s|ing|ed)?\b|migrat\w*|switch(ing)? (over|from)|mov(e|ing) (over|across|from)|bring (over|across|in) my|upload (my )?(file|csv|spreadsheet|export|data|records|customers))/i;
 
   /* 📎 Import: files go straight into HomeLinq's import wizard, where Moti reads them with the engineer */
@@ -155,6 +167,8 @@
       '<div class="mtw-body"></div><div class="mtw-chips"></div>' +
       '<form class="mtw-input"><button type="button" class="mtw-att" aria-label="Import your data from files" title="Import your data (CSV or Excel files)">&#128206;</button>' +
       '<input type="file" class="mtw-file" multiple accept=".csv,.txt,.tsv,.xlsx,.xlsm,.xls" style="display:none"/>' +
+      '<button type="button" class="mtw-att mtw-cam" aria-label="Send Moti a photo" title="Send Moti a photo (receipt, data plate, fault code, certificate)">&#128247;</button>' +
+      '<input type="file" class="mtw-img" accept="image/*" style="display:none"/>' +
       '<input type="text" class="mtw-text" placeholder="Ask Moti about your jobs, invoices..." autocomplete="off" aria-label="Message"/>' +
       '<button type="submit" aria-label="Send">&#8593;</button></form>';
     document.body.appendChild(panel);
@@ -165,6 +179,18 @@
     fileEl = panel.querySelector(".mtw-file");
     attEl = panel.querySelector(".mtw-att");
     attEl.addEventListener("click", function () { chooseImportFiles(); });
+    camEl = panel.querySelector(".mtw-cam");
+    imgEl = panel.querySelector(".mtw-img");
+    camEl.addEventListener("click", function () {
+      if (busy) { return; }
+      if (userRole === "customer") { addMsg("Photos are for HomeLinq Pro engineers.", "bot"); return; }
+      imgEl.click();
+    });
+    imgEl.addEventListener("change", function () {
+      var f = imgEl.files && imgEl.files[0];
+      imgEl.value = "";
+      if (f) { sendPhoto(f, inputEl.value.trim()); inputEl.value = ""; }
+    });
     fileEl.addEventListener("change", function () {
       var arr = [];
       for (var i = 0; i < fileEl.files.length; i++) { arr.push(fileEl.files[i]); }
@@ -291,6 +317,7 @@
               userRole = "customer";
               STARTERS = STARTERS_CUST;
               if (attEl) { attEl.style.display = "none"; }
+              if (camEl) { camEl.style.display = "none"; }
               var custName = (cRows && cRows[0] && cRows[0].full_name) ? String(cRows[0].full_name).split(" ")[0] : "";
               updateSubtitle("Your HomeLinq assistant");
               addMsg(custName ? ("Hi " + custName + " - " + GREETING_CUSTOMER) : ("Hi - " + GREETING_CUSTOMER), "bot");
@@ -380,6 +407,135 @@
     });
   }
 
+  /* ---------- Photos: shrink on the phone, send to Moti ---------- */
+  function shrinkImage(file, cb) {
+    var url = URL.createObjectURL(file);
+    var img = new Image();
+    img.onload = function () {
+      var tries = [[1600, 0.82], [1280, 0.75], [1024, 0.7]];
+      var out = null;
+      for (var i = 0; i < tries.length; i++) {
+        var max = tries[i][0], sc = Math.min(1, max / Math.max(img.width, img.height));
+        var c = document.createElement("canvas");
+        c.width = Math.round(img.width * sc); c.height = Math.round(img.height * sc);
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        out = c.toDataURL("image/jpeg", tries[i][1]);
+        if (out.length < 2000000) { break; }
+      }
+      URL.revokeObjectURL(url);
+      cb(null, out);
+    };
+    img.onerror = function () { URL.revokeObjectURL(url); cb("That file doesn't look like a photo I can read."); };
+    img.src = url;
+  }
+  function dataUrlToBlob(du) {
+    var parts = du.split(","), bin = atob(parts[1]), arr = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) { arr[i] = bin.charCodeAt(i); }
+    return new Blob([arr], { type: "image/jpeg" });
+  }
+  function sendPhoto(file, text) {
+    var token = getToken();
+    if (!token) { addMsg("Please sign in to HomeLinq Pro first, then send me the photo again.", "bot"); return; }
+    busy = true; chipsEl.innerHTML = "";
+    shrinkImage(file, function (err, du) {
+      if (err || !du) { busy = false; addMsg(err || "I couldn't read that photo.", "bot"); renderChips(); return; }
+      var bubble = document.createElement("div"); bubble.className = "mtw-photo";
+      var im = document.createElement("img"); im.src = du; im.alt = "Photo sent to Moti"; bubble.appendChild(im);
+      bodyEl.appendChild(bubble);
+      if (text) { addMsg(text, "user"); }
+      bodyEl.scrollTop = bodyEl.scrollHeight;
+      lastPhoto = { blob: dataUrlToBlob(du) };
+      var typing = showTyping();
+      api({ message: text || "", image: { media_type: "image/jpeg", data: du.split(",")[1] }, history: convo.slice(-12) }, token)
+        .then(function (d) { typing.remove(); busy = false; handleReply(d, "[Photo] " + (text || "(photo sent)"), token, true); })
+        .catch(function () { typing.remove(); busy = false; addMsg("I couldn't reach the server just then. Please try the photo again.", "bot"); renderChips(); });
+    });
+  }
+  function uploadPhoto(token, bucket, path, blob) {
+    return fetch(CFG.SUPABASE_URL + "/storage/v1/object/" + bucket + "/" + path, {
+      method: "POST", headers: { "apikey": CFG.SUPABASE_ANON_KEY, "Authorization": "Bearer " + token, "Content-Type": "image/jpeg", "x-upsert": "false" }, body: blob
+    }).then(function (r) { return r.ok ? path : r.text().then(function (t) { throw new Error(t || "upload failed"); }); });
+  }
+  function handleReply(d, userText, token, isPhoto) {
+    if (d.error) { addMsg(d.error, "bot"); renderChips(); return; }
+    var reply = d.reply || "";
+    convo.push({ role: "user", content: userText });
+    if (reply) { addMsg(reply, "bot"); convo.push({ role: "assistant", content: reply }); }
+    if (d.open_import || (userRole === "engineer" && !isPhoto && IMPORT_INTENT.test(userText))) { addImportCard(); }
+    if (d.proposals && d.proposals.length) { addChecklist(d.proposals, token, isPhoto); }
+    else if (d.proposal) { addChecklist([d.proposal], token, isPhoto); }
+    else { renderChips(); }
+  }
+  /* ---------- Approve one or several of Moti's suggestions ---------- */
+  function addChecklist(proposals, token, isPhoto) {
+    var card = document.createElement("div"); card.className = "mtw-check";
+    var head = document.createElement("div"); head.className = "mtw-cl";
+    head.textContent = proposals.length > 1 ? "Tick what you'd like me to do" : "Confirm with Moti";
+    card.appendChild(head);
+    var boxes = [];
+    proposals.forEach(function (p, i) {
+      var lab = document.createElement("label");
+      var cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = true;
+      var sp = document.createElement("span"); sp.textContent = p.summary || p.tool;
+      lab.appendChild(cb); lab.appendChild(sp); card.appendChild(lab);
+      var res = document.createElement("div"); res.className = "mtw-res"; card.appendChild(res);
+      boxes.push({ p: p, cb: cb, res: res });
+    });
+    var go = document.createElement("button"); go.type = "button";
+    var no = document.createElement("button"); no.type = "button"; no.className = "mtw-sec"; no.textContent = "Cancel";
+    function label() { var n = boxes.filter(function (b) { return b.cb.checked; }).length; go.textContent = n ? (proposals.length > 1 ? "Approve " + n + " selected" : "Confirm") : "Nothing selected"; go.disabled = !n; }
+    boxes.forEach(function (b) { b.cb.addEventListener("change", label); });
+    label();
+    card.appendChild(go); card.appendChild(no);
+    bodyEl.appendChild(card); bodyEl.scrollTop = bodyEl.scrollHeight;
+    function lock() { go.disabled = true; no.disabled = true; boxes.forEach(function (b) { b.cb.disabled = true; }); }
+    no.addEventListener("click", function () {
+      lock(); go.style.display = "none"; no.style.display = "none";
+      api({ declined: proposals.map(function (p) { return { tool: p.tool, input: p.input }; }), source: isPhoto ? "photo" : "chat" }, token).catch(function () {});
+      addMsg("No problem - I've left that. Anything else?", "bot");
+      convo.push({ role: "assistant", content: "[Engineer cancelled: " + proposals.map(function (p) { return p.summary; }).join("; ") + "]" });
+      renderChips();
+    });
+    go.addEventListener("click", function () {
+      var chosen = boxes.filter(function (b) { return b.cb.checked; }), skipped = boxes.filter(function (b) { return !b.cb.checked; });
+      if (!chosen.length) { return; }
+      lock(); go.textContent = "Working…"; busy = true;
+      var typing = showTyping();
+      var uid = jwtSub(token);
+      // Photos are uploaded (privately) only now, and only if "keep this photo" was ticked
+      var prep = chosen.map(function (b) {
+        if (b.p.tool !== "attach_photo_to_job") { return Promise.resolve(); }
+        if (!lastPhoto || !uid) { b.failLocal = "The photo is no longer available — send it again."; return Promise.resolve(); }
+        var bucket = b.p.input.kind === "receipt" ? "receipts" : "job-photos";
+        var path = uid + "/" + (b.p.input.job_id || "general") + "/" + Date.now() + "-" + Math.floor(Math.random() * 1e6) + ".jpg";
+        return uploadPhoto(token, bucket, path, lastPhoto.blob).then(function () { b.p.input.storage_path = path; b.p.input.storage_bucket = bucket; })
+          .catch(function () { b.failLocal = "The photo didn't upload — check your signal and try again."; });
+      });
+      Promise.all(prep).then(function () {
+        var send = chosen.filter(function (b) { return !b.failLocal; });
+        chosen.forEach(function (b) { if (b.failLocal) { b.res.textContent = "✗ " + b.failLocal; b.res.style.color = "#F87171"; } });
+        var payload = { confirmActions: send.map(function (b) { return { tool: b.p.tool, input: b.p.input }; }), source: isPhoto ? "photo" : "chat" };
+        if (skipped.length) { payload.declined = skipped.map(function (b) { return { tool: b.p.tool, input: b.p.input }; }); }
+        if (!send.length) { typing.remove(); busy = false; go.style.display = "none"; no.style.display = "none"; renderChips(); return; }
+        return api(payload, token).then(function (d) {
+          typing.remove(); busy = false; go.style.display = "none"; no.style.display = "none";
+          var results = d.results || [];
+          var done = [];
+          send.forEach(function (b, i) {
+            var r = results[i] || { ok: false, message: d.error || "Something went wrong." };
+            b.res.textContent = (r.ok ? "✓ " : "✗ ") + (r.message || (r.ok ? "Done" : "Didn't go through"));
+            b.res.style.color = r.ok ? "#A3E635" : "#F87171";
+            if (r.ok) { done.push(b.p.summary); }
+          });
+          skipped.forEach(function (b) { b.res.textContent = "– Skipped"; b.res.style.color = "#9AA0AC"; });
+          convo.push({ role: "assistant", content: "[Engineer approved and done: " + done.join("; ") + "]" });
+          if (window.booksRefresh) { try { window.booksRefresh(); } catch (e) {} }
+          renderChips();
+        });
+      }).catch(function () { typing.remove(); busy = false; go.textContent = "Try again"; go.disabled = false; renderChips(); });
+    });
+  }
+
   function send(text) {
     addMsg(text, "user");
     chipsEl.innerHTML = "";
@@ -394,13 +550,7 @@
       .then(function (d) {
         typing.remove();
         busy = false;
-        if (d.error) { addMsg(d.error, "bot"); renderChips(); return; }
-        var reply = d.reply || "";
-        convo.push({ role: "user", content: text });
-        if (reply) { addMsg(reply, "bot"); convo.push({ role: "assistant", content: reply }); }
-        if (d.open_import || (userRole === "engineer" && IMPORT_INTENT.test(text))) { addImportCard(); }
-        if (d.proposal) { addConfirmCard(d.proposal, token); }
-        else { renderChips(); }
+        handleReply(d, text, token, false);
       })
       .catch(function () {
         typing.remove();
