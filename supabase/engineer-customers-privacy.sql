@@ -102,3 +102,24 @@ create policy "Engineers read customers they serve" on public.customers
 -- 15 Nov 2026 (Phase 1A-M1, applied live): migration "import_batches_and_templates"
 --  * import_batches (owner-only RLS, admin read): status, source_software, files, counts, progress
 --  * import_templates (shared column-matching templates; read by signed-in users; written by moti-import later)
+
+-- ===== M2.5 (2026-11-15): Moti import conversation — daily fair-use counter =====
+create table if not exists public.moti_import_usage(
+  engineer_id uuid not null references auth.users(id) on delete cascade,
+  day date not null default current_date,
+  calls int not null default 0,
+  primary key(engineer_id, day)
+);
+alter table public.moti_import_usage enable row level security;
+create policy "Engineers read own Moti import usage" on public.moti_import_usage for select using (engineer_id = auth.uid());
+create or replace function public.bump_moti_import_usage(p_engineer uuid)
+returns int language plpgsql security definer set search_path = public as $$
+declare v int;
+begin
+  if not public.is_service_role() then raise exception 'Not authorised'; end if;
+  insert into public.moti_import_usage(engineer_id, day, calls) values (p_engineer, current_date, 1)
+  on conflict (engineer_id, day) do update set calls = moti_import_usage.calls + 1
+  returning calls into v;
+  return v;
+end $$;
+revoke execute on function public.bump_moti_import_usage(uuid) from public, anon, authenticated;

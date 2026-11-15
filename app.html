@@ -10118,6 +10118,7 @@ function _wizFileReady(f,headers,rows){
   rows=rows.filter(function(r){for(var k in r){if(r.hasOwnProperty(k)&&String(r[k]===null||r[k]===undefined?'':r[k]).trim()!=='')return true}return false});
   if(!headers.length||!rows.length){f.status='error';f.error='No rows found — is the first row the column headings?';render();return}
   f.headers=headers;f.rows=rows;f.type=_wizDetectType(headers);f.mapping=_impAutoMap(f.type,headers);f.status='ready';
+  try{f.profile=_wizProfile(f)}catch(e){console.log('Profile error:',e)}
   render();
   _wizAnalyse(f);
 }
@@ -10147,13 +10148,14 @@ function wizGoMap(){
   if(!wiz.files.length){toast('warning','Add at least one file');return}
   if(wiz.files.some(function(f){return f.status==='reading'||f.status==='queued'})){toast('warning','Still reading your files — one moment');return}
   if(!wiz.files.some(function(f){return f.status==='ready'})){toast('error','None of the files could be read');return}
-  wiz.step='map';render();
+  wiz.step='map';render();_wizMaybeOpenChat();
 }
 function wizStartImport(){
-  var ready=wiz.files.filter(function(f){return f.status==='ready'});
+  var ready=wiz.files.filter(function(f){return f.status==='ready'&&!f.skipped});
+  if(!ready.length){toast('warning','Every file is skipped — include at least one');return}
+  if(wiz.chat&&wiz.chat.busy){toast('warning','Moti is replying — one moment');return}
   for(var i=0;i<ready.length;i++){var miss=_wizMissing(ready[i]);if(miss.length){toast('error',ready[i].name+': choose a column for "'+miss[0]+'"');return}
-    if(ready[i].ai&&ready[i].ai.status==='loading'){toast('warning','Moti is still checking '+ready[i].name+' — one moment');return}
-    if(_wizUnanswered(ready[i])){toast('warning','Please answer Moti\'s question for '+ready[i].name);return}}
+    if(ready[i].ai&&ready[i].ai.status==='loading'){toast('warning','Moti is still checking '+ready[i].name+' — one moment');return}}
   if(!currentUser||!sb){toast('error','Please sign in first');return}
   ready.sort(function(a,b){return WIZ_ORDER.indexOf(a.type)-WIZ_ORDER.indexOf(b.type)});
   wiz.batchId=genUUID();wiz.step='importing';wiz.results=[];wiz.progress={file:'',done:0,total:0};
@@ -10229,13 +10231,13 @@ function _wizAnalyse(f){
     fetch(STRIPE_EDGE_URL+'/moti-import',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token,'apikey':SUPABASE_KEY},
       body:JSON.stringify({action:'analyse',software:wiz.software||'unknown',file_name:f.name,row_count:f.rows.length,headers:f.headers,samples:_wizMaskedSamples(f)})
     }).then(function(r){return r.json()}).then(function(res){
-      if(!res||res.error){f.ai={status:'failed',error:(res&&res.error)||'Moti unavailable'};render();return}
+      if(!res||res.error){f.ai={status:'failed',error:(res&&res.error)||'Moti unavailable'};render();_wizMaybeOpenChat();return}
       if(!f.typeLocked&&res.record_type&&IMPORT_TYPES[res.record_type]&&res.record_type!==f.type){f.type=res.record_type;f.mapping=_impAutoMap(f.type,f.headers)}
       if(res.record_type===f.type&&res.mapping){Object.keys(res.mapping).forEach(function(k){if(IMPORT_TYPES[f.type].fields.indexOf(k)!==-1&&f.headers.indexOf(res.mapping[k])!==-1)f.mapping[k]=res.mapping[k]})}
       if(res.date_format&&res.date_format!=='unknown')f.dateFormat=res.date_format;
       f.ai={status:'done',software:res.software,confidence:res.confidence,notes:res.notes||'',fromTemplate:!!res.from_template,questions:res.questions||[],answers:{}};
-      render();
-    }).catch(function(err){console.log('moti-import error:',err);f.ai={status:'failed',error:'Moti unavailable'};render()});
+      render();_wizMaybeOpenChat();
+    }).catch(function(err){console.log('moti-import error:',err);f.ai={status:'failed',error:'Moti unavailable'};render();_wizMaybeOpenChat()});
   });
 }
 function wizAnswer(fid,qid,value){
@@ -10264,20 +10266,229 @@ function _wizAiBox(f){
     (f.ai.software&&f.ai.software!=='unknown'?' · '+esc(WIZ_SOFT_LABEL[f.ai.software]||f.ai.software):'')+
     (f.ai.confidence?' · '+Math.round(f.ai.confidence*100)+'% sure':'')+(f.dateFormat?' · dates '+({DMY:'day/month/year',MDY:'month/day/year',YMD:'year-month-day'}[f.dateFormat]||''):'')+'</div>';
   if(f.ai.notes)h+='<div class="text-sm" style="margin-top:4px">'+esc(f.ai.notes)+'</div>';
-  (f.ai.questions||[]).forEach(function(q){
-    var ans=f.ai.answers[q.id];
-    h+='<div style="margin-top:10px;padding-top:8px;border-top:1px solid rgba(13,148,136,.2)"><div class="text-sm fw-700">❓ '+esc(q.text)+'</div>';
-    if(q.options&&q.options.length){
-      h+='<div class="flex gap-8" style="flex-wrap:wrap;margin-top:6px">'+q.options.map(function(o){
-        var on=ans===o.value;
-        return '<button class="btn '+(on?'btn-primary':'btn-secondary')+' btn-sm" onclick="wizAnswer('+f.id+',\''+q.id+'\',\''+escAttr(o.value).replace(/\\/g,'\\\\')+'\')">'+esc(o.label)+'</button>';
-      }).join('')+'</div>';
-    }
-    h+='</div>';
-  });
   return h+'</div>';
 }
 function _wizUnanswered(f){if(!f.ai||f.ai.status!=='done')return 0;return (f.ai.questions||[]).filter(function(q){return q.kind!=='info'&&q.options&&q.options.length&&f.ai.answers[q.id]===undefined}).length}
+
+// ===== M2.5: column profiles — worked out on this device; no personal details leave it =====
+function _wizKind(s){
+  if(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s))return 'email';
+  if(/^[A-Za-z]{1,2}[0-9][A-Za-z0-9]?\s*[0-9][A-Za-z]{2}$/.test(s))return 'postcode';
+  if(/^\d{4}-\d{1,2}-\d{1,2}/.test(s)||/^\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}(\s|$|T)/.test(s))return 'date';
+  if(/^[£$€]?\s*-?[\d,]+(\.\d+)?$/.test(s)&&s.replace(/[^0-9]/g,'').length<10)return 'number';
+  if(/^[0-9+()\s\-]{7,}$/.test(s)&&s.replace(/[^0-9]/g,'').length>=9)return 'phone';
+  if(/^(yes|no|true|false|y|n)$/i.test(s))return 'yesno';
+  return 'text';
+}
+var WIZ_VALUE_HEADERS=/status|type|category|result|method|stage|priority|paid|appliance|make|model|service|kind|trade/i;
+function _wizSafeValue(s,header){
+  if(!WIZ_VALUE_HEADERS.test(header)&&/^[A-Z][a-z'\-]+(\s+[A-Z][a-z'\-]+)+$/.test(s))return s.split(/\s+/).map(function(w){return w.charAt(0)+'***'}).join(' ');
+  return s;
+}
+function _wizProfile(f){
+  var n=f.rows.length,step=n>20000?Math.ceil(n/20000):1,cols={},seen=0,i,j;
+  f.headers.forEach(function(h){cols[h]={filled:0,kinds:{},distinct:{},dcount:0,dcap:false,min:null,max:null,zeros:0,neg:0,dmin:null,dmax:null,dfirst:0,dsecond:0,dslash:0,diso:0,len:0}});
+  for(i=0;i<n;i+=step){
+    seen++;var r=f.rows[i];
+    for(j=0;j<f.headers.length;j++){
+      var h=f.headers[j],c=cols[h],s=_impStr(r[h]);if(!s)continue;
+      c.filled++;c.len+=s.length;var k=_wizKind(s);c.kinds[k]=(c.kinds[k]||0)+1;
+      if(!c.dcap){if(c.distinct[s]===undefined){c.distinct[s]=1;c.dcount++;if(c.dcount>25000){c.dcap=true;c.distinct=null}}else{c.distinct[s]++}}
+      if(k==='number'){var v=_impMoney(s);if(c.min===null||v<c.min)c.min=v;if(c.max===null||v>c.max)c.max=v;if(v===0)c.zeros++;if(v<0)c.neg++}
+      else if(k==='date'){
+        var m=/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})/.exec(s);
+        if(m){c.dslash++;if(parseInt(m[1],10)>12)c.dfirst++;if(parseInt(m[2],10)>12)c.dsecond++}else{c.diso++}
+        var iso=_impDate(s,f.dateFormat||'DMY');if(iso){if(!c.dmin||iso<c.dmin)c.dmin=iso;if(!c.dmax||iso>c.dmax)c.dmax=iso}
+      }
+    }
+  }
+  var out={};
+  f.headers.forEach(function(h){
+    var c=cols[h],kind='empty',best=0;
+    Object.keys(c.kinds).forEach(function(k){if(c.kinds[k]>best){best=c.kinds[k];kind=k}});
+    var personal=_wizIsPiiHeader(h)||kind==='email'||kind==='phone'||kind==='postcode';
+    var p={filled_pct:seen?Math.round(c.filled*100/seen):0,kind:kind};
+    if(c.filled){
+      p.avg_len=Math.round(c.len/c.filled);
+      if(best<c.filled*0.9){p.kinds={};Object.keys(c.kinds).forEach(function(k){p.kinds[k]=Math.round(c.kinds[k]*100/c.filled)})}
+      p.distinct=c.dcap?'25000+':c.dcount;
+      p.unique_pct=c.dcap?100:Math.round(c.dcount*100/c.filled);
+    }
+    if(personal){p.personal=true}
+    else if(c.filled){
+      if(kind==='number'){p.min=c.min;p.max=c.max;p.zeros=Math.round(c.zeros*step);if(c.neg)p.negatives=Math.round(c.neg*step)}
+      if(kind==='date'){p.from=c.dmin;p.to=c.dmax;
+        p.date_hint=c.dslash?(c.dfirst&&!c.dsecond?'DMY':(c.dsecond&&!c.dfirst?'MDY':(!c.dfirst&&!c.dsecond?'ambiguous':'mixed'))):(c.diso?'YMD':'')}
+      if(!c.dcap&&c.dcount<=15&&kind!=='date'){
+        p.top_values=Object.keys(c.distinct).filter(function(v){return v.length<=40}).sort(function(a,b){return c.distinct[b]-c.distinct[a]}).slice(0,12)
+          .map(function(v){return [_wizSafeValue(v,h),Math.round(c.distinct[v]*step)]});
+      }
+    }
+    out[h]=p;
+  });
+  return {rows:n,sampled_every:step,columns:out};
+}
+function _wizKey(v){return _impStr(v).toLowerCase().replace(/\s+/g,' ')}
+function _wizLinks(){
+  var files=wiz.files.filter(function(f){return f.status==='ready'&&!f.skipped&&f.profile});
+  var res=[];
+  files.forEach(function(T){
+    if(T.type!=='customers')return; // links attach records to a customers file
+    var keys=T.headers.filter(function(h){var p=T.profile.columns[h];return p&&p.filled_pct>=50&&p.unique_pct>=90&&p.kind!=='date'&&(p.distinct==='25000+'||p.distinct>=5)}).slice(0,8);
+    keys.forEach(function(tk){
+      var set={};T.rows.forEach(function(r){var k=_wizKey(r[tk]);if(k)set[k]=1});
+      files.forEach(function(S){
+        if(S===T)return;
+        S.headers.forEach(function(sc){
+          var p=S.profile.columns[sc];if(!p||p.filled_pct<30||p.kind==='date')return;
+          var step=Math.max(1,Math.floor(S.rows.length/1000)),chk=0,hit=0;
+          for(var i=0;i<S.rows.length&&chk<1000;i+=step){var k=_wizKey(S.rows[i][sc]);if(!k)continue;chk++;if(set[k])hit++}
+          if(chk>=5&&hit/chk>=0.5)res.push({file_id:S.id,column:sc,target_file_id:T.id,target_column:tk,match_pct:Math.round(hit*100/chk)});
+        });
+      });
+    });
+  });
+  res.sort(function(a,b){return b.match_pct-a.match_pct});
+  return res.slice(0,10);
+}
+
+// ===== M2.5: one conversation with Moti for the whole import =====
+function _wizChatInit(){if(!wiz.chat)wiz.chat={messages:[],memory:'',busy:false,started:false,draft:'',fileSig:''}}
+function _wizFile(id){return wiz.files.find(function(x){return x.id===Number(id)})}
+function _wizFileSig(){return wiz.files.filter(function(f){return f.status==='ready'}).map(function(f){return f.id}).join(',')}
+function _wizFilesForMoti(){
+  return wiz.files.filter(function(f){return f.status==='ready'}).map(function(f){
+    return {file_id:f.id,name:f.name,rows:f.rows.length,type:f.type,type_chosen_by_engineer:!!f.typeLocked,skipped:!!f.skipped,date_format:f.dateFormat||null,
+      mapping:f.mapping,missing_required:_wizMissing(f),linked:f.link||null,
+      earlier_analysis:(f.ai&&f.ai.status==='done')?{software:f.ai.software,confidence:f.ai.confidence,notes:f.ai.notes,open_questions:(f.ai.questions||[]).map(function(q){return q.text})}:null,
+      columns:f.profile?f.profile.columns:{},masked_samples:_wizMaskedSamples(f).slice(0,3)};
+  });
+}
+function _wizScrollChat(focus){setTimeout(function(){var el=document.getElementById('wiz-chat');if(el)el.scrollTop=el.scrollHeight;if(focus){var i=document.getElementById('wiz-chat-in');if(i)i.focus()}},30)}
+function _wizMaybeOpenChat(){
+  _wizChatInit();if(wiz.step!=='map')return;
+  if(wiz.files.some(function(f){return f.status==='ready'&&f.ai&&f.ai.status==='loading'}))return;
+  var sig=_wizFileSig();
+  if(!wiz.chat.started){wiz.chat.fileSig=sig;wizMotiSend(null);return}
+  if(sig!==wiz.chat.fileSig){wiz.chat.fileSig=sig;wiz.chat.messages.push({role:'event',text:'Files changed — now '+wiz.files.filter(function(f){return f.status==='ready'}).length+' file(s)'});wizMotiSend(null)}
+}
+function wizMotiSend(text){
+  _wizChatInit();var c=wiz.chat;if(c.busy)return;
+  if(text!==null){text=String(text||'').trim();if(!text)return;c.messages.push({role:'you',text:text.substring(0,2000)});c.draft=''}
+  c.started=true;c.busy=true;render();_wizScrollChat();
+  var hist=c.messages.slice(-16).map(function(m){return {role:m.role==='moti'?'assistant':'user',text:m.role==='event'?('[Engineer action] '+m.text):(m.text||'')}});
+  sb.auth.getSession().then(function(sRes){
+    var token=(sRes.data&&sRes.data.session)?sRes.data.session.access_token:'';
+    return fetch(STRIPE_EDGE_URL+'/moti-import',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token,'apikey':SUPABASE_KEY},
+      body:JSON.stringify({action:'converse',software:wiz.software||'unknown',files:_wizFilesForMoti(),links:_wizLinks(),memory:c.memory,history:hist})
+    }).then(function(r){return r.json()});
+  }).then(function(res){
+    c.busy=false;
+    if(!res||res.error){c.messages.push({role:'moti',text:(res&&res.error)||'Moti is unavailable right now. You can still check the columns below and import.',actions:[]});render();_wizScrollChat();return}
+    if(res.memory)c.memory=res.memory;
+    var acts=(res.actions||[]).map(function(a){a.state='new';return a});
+    c.messages.push({role:'moti',text:res.reply||'',actions:acts});
+    render();_wizScrollChat(true);
+  }).catch(function(err){console.log('moti-import converse error:',err);c.busy=false;c.messages.push({role:'moti',text:'I couldn\'t reach the server just now. Try again, or check the columns below and import.',actions:[]});render();_wizScrollChat()});
+}
+var WIZ_DF_LABEL={DMY:'day/month/year',MDY:'month/day/year',YMD:'year-month-day'};
+function _wizActionLabel(a){
+  var f=_wizFile(a.file_id),fn=f?'"'+f.name+'"':'file',t;
+  switch(a.kind){
+    case 'set_type':return 'Treat '+fn+' as '+(IMPORT_TYPES[a.record_type]?IMPORT_TYPES[a.record_type].label:a.record_type);
+    case 'set_mapping':return a.column?fn+': use column "'+a.column+'" for '+a.field:fn+': leave '+a.field+' empty';
+    case 'set_date_format':return fn+': dates are '+(WIZ_DF_LABEL[a.date_format]||a.date_format);
+    case 'skip_file':return 'Skip '+fn+' — don\'t import it';
+    case 'include_file':return 'Include '+fn+' again';
+    case 'link_files':t=_wizFile(a.target_file_id);return 'Link '+fn+' to customers in '+(t?'"'+t.name+'"':'file')+' where "'+a.column+'" = "'+a.target_column+'"';
+    case 'map_value':return fn+': treat "'+a.from_value+'" as '+String(a.to_value).replace('_',' ');
+  }
+  return a.kind;
+}
+function _wizLink(f,col,t,tcol){
+  if(!t||t.type!=='customers'||!t.mapping.name){toast('error','Linking needs a customers file with a name column');return false}
+  if(f.headers.indexOf(col)===-1||t.headers.indexOf(tcol)===-1)return false;
+  var idx={};t.rows.forEach(function(r){var k=_wizKey(r[tcol]);if(k&&!idx[k])idx[k]=r});
+  var tm=t.mapping,fields=IMPORT_TYPES[f.type].fields,hits=0;
+  var nameF=f.type==='certificates'?'recipientName':'customer',emailF=f.type==='certificates'?'recipientEmail':'email',addrF=f.type==='certificates'?'prop':'address';
+  if(fields.indexOf(nameF)===-1){toast('error','This kind of file can\'t be linked to customers');return false}
+  var plan=[['Linked customer',nameF,'name'],['Linked email',emailF,'email'],['Linked phone','phone','phone']];
+  if(!f.mapping[addrF])plan.push(['Linked address',addrF,'address']);
+  if(!f.mapping.postcode)plan.push(['Linked postcode','postcode','postcode']);
+  plan=plan.filter(function(p){return fields.indexOf(p[1])!==-1&&tm[p[2]]});
+  var cur={};plan.forEach(function(p){cur[p[1]]=f.mapping[p[1]]&&f.mapping[p[1]].indexOf('Linked ')!==0?f.mapping[p[1]]:''});
+  f.rows.forEach(function(r){
+    var tr=idx[_wizKey(r[col])];if(tr)hits++;
+    plan.forEach(function(p){var v=tr?_impStr(tr[tm[p[2]]]):'';if(!v&&cur[p[1]])v=_impStr(r[cur[p[1]]]);r[p[0]]=v});
+  });
+  plan.forEach(function(p){if(f.headers.indexOf(p[0])===-1)f.headers.push(p[0]);f.mapping[p[1]]=p[0]});
+  f.link={column:col,target_file_id:t.id,target_column:tcol,matched:hits};
+  f.profile=_wizProfile(f);
+  toast('success',hits.toLocaleString()+' of '+f.rows.length.toLocaleString()+' rows linked to a customer');
+  return true;
+}
+function _wizApply(a){
+  var f=_wizFile(a.file_id);if(!f)return false;
+  switch(a.kind){
+    case 'set_type':if(!IMPORT_TYPES[a.record_type])return false;f.type=a.record_type;f.typeLocked=true;f.mapping=_impAutoMap(f.type,f.headers);return true;
+    case 'set_mapping':if(IMPORT_TYPES[f.type].fields.indexOf(a.field)===-1)return false;if(a.column&&f.headers.indexOf(a.column)===-1)return false;f.mapping[a.field]=a.column||'';return true;
+    case 'set_date_format':if(!WIZ_DF_LABEL[a.date_format])return false;f.dateFormat=a.date_format;f.profile=_wizProfile(f);return true;
+    case 'skip_file':f.skipped=true;return true;
+    case 'include_file':f.skipped=false;return true;
+    case 'link_files':return _wizLink(f,a.column,_wizFile(a.target_file_id),a.target_column);
+    case 'map_value':
+      var col=f.mapping[a.field];if(!col)return false;var n=0;
+      f.rows.forEach(function(r){if(_impStr(r[col])===a.from_value){r[col]=a.to_value;n++}});
+      f.profile=_wizProfile(f);toast('success',n.toLocaleString()+' rows updated');return n>0;
+  }
+  return false;
+}
+function wizApplyAction(mi,ai){
+  var m=wiz.chat&&wiz.chat.messages[mi];if(!m||!m.actions)return;var a=m.actions[ai];if(!a||a.state!=='new')return;
+  var ok=false;try{ok=_wizApply(a)}catch(e){console.log('Apply error:',e)}
+  a.state=ok?'applied':'failed';
+  wiz.chat.messages.push({role:'event',text:(ok?'Applied: ':'Could not apply: ')+_wizActionLabel(a)});
+  render();_wizScrollChat();
+}
+function wizApplyAll(mi){var m=wiz.chat&&wiz.chat.messages[mi];if(!m||!m.actions)return;m.actions.forEach(function(a,ai){if(a.state==='new')wizApplyAction(mi,ai)})}
+function wizDismissAction(mi,ai){
+  var m=wiz.chat&&wiz.chat.messages[mi];if(!m||!m.actions)return;var a=m.actions[ai];if(!a||a.state!=='new')return;
+  a.state='dismissed';wiz.chat.messages.push({role:'event',text:'Declined: '+_wizActionLabel(a)});render();_wizScrollChat();
+}
+function wizSkipFile(id,skip){var f=_wizFile(id);if(!f)return;f.skipped=!!skip;_wizChatInit();wiz.chat.messages.push({role:'event',text:(skip?'Skipped ':'Included ')+'"'+f.name+'"'});render()}
+function wizSetDateFormat(id,v){var f=_wizFile(id);if(!f)return;f.dateFormat=v||null;if(f.profile)f.profile=_wizProfile(f);_wizChatInit();wiz.chat.messages.push({role:'event',text:'"'+f.name+'": dates set to '+(WIZ_DF_LABEL[v]||'automatic')});render()}
+function _wizFmt(t){return esc(t||'').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/\n/g,'<br>')}
+function _wizChatPanel(){
+  _wizChatInit();var c=wiz.chat;
+  var h='<div style="border:1.5px solid var(--primary);border-radius:12px;margin-bottom:14px;overflow:hidden">';
+  h+='<div style="padding:8px 12px;background:var(--primary-light);font-weight:800;color:var(--primary-dark);font-size:13px">🤖 Work it out with Moti</div>';
+  h+='<div id="wiz-chat" style="max-height:360px;overflow-y:auto;padding:8px 12px">';
+  if(!c.messages.length&&!c.busy)h+='<div class="text-sm text-muted" style="padding:6px 0">Moti will look over your files as soon as they\'re checked.</div>';
+  c.messages.forEach(function(m,mi){
+    if(m.role==='event'){h+='<div style="text-align:center;font-size:11px;color:var(--muted);margin:6px 0">'+esc(m.text)+'</div>';return}
+    var me=m.role==='you';
+    if(m.text)h+='<div style="display:flex;justify-content:'+(me?'flex-end':'flex-start')+';margin:6px 0"><div style="max-width:85%;padding:8px 11px;border-radius:12px;font-size:13px;line-height:1.45;background:'+(me?'var(--primary)':'var(--bg)')+';color:'+(me?'#fff':'var(--text)')+'">'+_wizFmt(m.text)+'</div></div>';
+    if(m.actions&&m.actions.length){
+      var nNew=0;
+      h+='<div style="margin:2px 0 8px;max-width:92%">';
+      m.actions.forEach(function(a,ai){
+        if(a.state==='new')nNew++;
+        h+='<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--border);border-radius:10px;margin-bottom:5px;background:var(--card);font-size:12px'+(a.state!=='new'?';opacity:.75':'')+'"><div style="flex:1">'+esc(_wizActionLabel(a))+'</div>'+
+          (a.state==='new'?'<button class="btn btn-primary btn-sm" onclick="wizApplyAction('+mi+','+ai+')">Apply</button><button class="btn btn-secondary btn-sm" title="Decline" onclick="wizDismissAction('+mi+','+ai+')">✕</button>':
+           a.state==='applied'?'<span style="color:var(--success);font-weight:700">✓ Applied</span>':
+           a.state==='failed'?'<span style="color:var(--danger)">Couldn\'t apply</span>':'<span class="text-muted">Declined</span>')+'</div>';
+      });
+      if(nNew>=2)h+='<button class="btn btn-secondary btn-sm" onclick="wizApplyAll('+mi+')">Apply all '+nNew+'</button>';
+      h+='</div>';
+    }
+  });
+  if(c.busy)h+='<div class="text-sm text-muted" style="margin:6px 0">🤖 Moti is thinking…</div>';
+  h+='</div>';
+  h+='<div style="display:flex;gap:6px;padding:8px;border-top:1px solid var(--border)"><textarea id="wiz-chat-in" class="input" rows="2" style="flex:1;resize:vertical;font-size:13px" placeholder="Tell Moti what\'s in your files, or ask anything…" oninput="wiz.chat.draft=this.value" onkeydown="if(event.key===\'Enter\'&&!event.shiftKey){event.preventDefault();wizMotiSend(this.value)}">'+esc(c.draft||'')+'</textarea>'+
+    '<button class="btn btn-primary btn-sm" '+(c.busy?'disabled':'')+' onclick="wizMotiSend(document.getElementById(\'wiz-chat-in\').value)">Send</button></div>';
+  h+='<div style="font-size:10.5px;color:var(--muted);padding:0 10px 8px">Moti suggests, you decide — nothing changes until you tap Apply. Moti never sees your customers\' details, so please don\'t type them here.</div>';
+  return h+'</div>';
+}
 
 function _wizSteps(cur){
   var steps=[['software','Where from'],['upload','Upload'],['map','Check'],['importing','Import'],['done','Done']];
@@ -10316,12 +10527,18 @@ function renderWizard(){
     });
     h+='<div class="flex gap-8 mt-16"><button class="btn btn-primary" onclick="wizGoMap()">Next →</button><button class="btn btn-secondary" onclick="wiz.step=\'software\';render()">← Back</button></div>';
   }else if(wiz.step==='map'){
-    h+='<p class="text-sm text-muted mb-12">Check what each file contains and how its columns match. Sample values from your file are shown on the right.</p>';
+    h+='<p class="text-sm text-muted mb-12">Talk it through with Moti, then check what each file contains and how its columns match. Sample values from your file are shown on the right.</p>';
+    h+=_wizChatPanel();
     wiz.files.filter(function(f){return f.status==='ready'}).forEach(function(f){
+      if(f.skipped){h+='<div style="border:1px dashed var(--border);border-radius:12px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:8px"><div style="flex:1" class="text-sm">⏭️ <strong>'+esc(f.name)+'</strong> — skipped, won\'t be imported</div><button class="btn btn-secondary btn-sm" onclick="wizSkipFile('+f.id+',false)">Include</button></div>';return}
       var t=IMPORT_TYPES[f.type];var miss=_wizMissing(f);
       h+='<div style="border:1px solid '+(miss.length?'var(--danger)':'var(--border)')+';border-radius:12px;padding:14px;margin-bottom:12px">';
       h+='<div class="flex-between" style="gap:8px;flex-wrap:wrap"><div class="fw-800">'+esc(f.name)+' <span class="text-sm text-muted">· '+f.rows.length.toLocaleString()+' rows</span></div>'+
         '<select class="select" style="padding:6px 10px" onchange="wizSetType('+f.id+',this.value)">'+WIZ_ORDER.map(function(k){return '<option value="'+k+'"'+(k===f.type?' selected':'')+'>'+IMPORT_TYPES[k].icon+' '+IMPORT_TYPES[k].label+'</option>'}).join('')+'</select></div>';
+      h+='<div class="flex gap-8" style="align-items:center;margin-top:8px;flex-wrap:wrap"><span class="text-sm text-muted">Dates:</span><select class="select" style="padding:4px 8px;font-size:12px" onchange="wizSetDateFormat('+f.id+',this.value)"><option value="">Automatic (UK)</option>'+
+        ['DMY','MDY','YMD'].map(function(d){return '<option value="'+d+'"'+(f.dateFormat===d?' selected':'')+'>'+WIZ_DF_LABEL[d]+'</option>'}).join('')+'</select>'+
+        (f.link?'<span class="text-sm" style="color:var(--success)">🔗 Linked to customers ('+f.link.matched.toLocaleString()+' rows)</span>':'')+
+        '<span style="flex:1"></span><button class="btn btn-secondary btn-sm" onclick="wizSkipFile('+f.id+',true)">⏭️ Skip file</button></div>';
       h+=_wizAiBox(f);
       h+=miss.length?'<div class="text-sm" style="color:var(--danger);margin:8px 0">Choose a column for: '+miss.join(', ')+'</div>':'<div class="text-sm" style="color:var(--success);margin:8px 0">✓ Required columns matched</div>';
       t.fields.forEach(function(fd){
