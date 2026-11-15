@@ -79,3 +79,9 @@ create policy "Engineers read customers they serve" on public.customers
 --  * next_invoice_number(); triggers auto-number invoices/quotes when number is blank
 --  * complete_job: proper numbering, VAT only if engineer vat_registered
 --  * private storage bucket 'verification-docs' (engineer uploads to own folder; admin can read)
+
+-- 15 Nov 2026 (0.2e, applied live): migration "engineer_customers_backfill_and_auto_add"
+--  * source values now include 'backfill','auto'
+--  * ensure_engineer_customer(): add customer to engineer's list if missing (match email, else name; fills gaps only)
+--  * AFTER INSERT triggers on jobs, invoices, quotes, cp12_certificates call it (errors never block the save)
+--  * one-off backfill from marketplace_jobs, jobs, quotes, invoices, certificates

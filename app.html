@@ -784,30 +784,7 @@ function loadEngineerData() {
     }
   });
   // Load customers list — ONLY this engineer's own customer records (privacy: engineer_customers + RLS)
-  sb.from('engineer_customers').select('*').eq('engineer_id', currentUser.id).order('full_name', { ascending: true }).then(function(res) {
-    if(res.error){console.log('Load customers error:',res.error.message);return}
-    if (res.data && res.data.length > 0) {
-      var dbCustomers = res.data.map(function(c, idx) {
-        var _nm = c.full_name || '';
-        return {
-          id: c.id, _supaId: c.id, linkedCustomerId: c.linked_customer_id || null,
-          name: _nm, ini: (_nm || 'XX').split(' ').map(function(w){return w[0]||''}).join('').substring(0,2).toUpperCase(),
-          addr: c.address || '', email: c.email || '', phone: c.phone || '',
-          postcode: c.postcode || '', houseNumber: c.house_number || '',
-          boiler: c.boiler || '—', company: c.is_company ? _nm : '',
-          contactPerson: c.contact_person || '', refPrefix: c.ref_prefix || '',
-          last: '', next: '', jobs: 0, spent: 0, c: c.is_company ? 'purple' : 'teal', isCompany: !!c.is_company, hist: [],
-          source: c.source || 'manual'
-        };
-      });
-      if (dbCustomers.length > 0) {
-        customers = dbCustomers;
-        // Cross-reference customers with loaded invoices to populate jobs/spent
-        syncCustomerInvoices();
-        render();
-      }
-    }
-  });
+  loadEngineerCustomers();
   // Load service reminders
   loadRemindersFromSupabase();
   // Load new marketplace jobs for the feed
@@ -10121,6 +10098,7 @@ function _saveJobRetry(params,job,dateKey,attempt){
       }
     }else{
       console.log('Job saved via RPC:',res.data);
+      scheduleCustomerReload();
       if(res.data&&res.data.job_id){job.id=res.data.job_id}
       job._needsSync=false;
     }
@@ -10176,7 +10154,7 @@ function saveInvoiceToSupabase(inv) {
     p_engineer_name: S.engineer.business || S.engineer.name || ''
   }).then(function(res) {
     if (res.error) { console.log('Invoice RPC error:', res.error.message); }
-    else { console.log('Invoice saved via RPC:', res.data); }
+    else { console.log('Invoice saved via RPC:', res.data); scheduleCustomerReload(); }
   });
 }
 
@@ -10289,7 +10267,7 @@ function saveCertToSupabase(cert) {
     p_data: certData
   }).then(function(res) {
     if (res.error) { console.log('Save cert RPC error:', res.error.message); toast('error','Certificate not saved to cloud — please check your connection'); }
-    else { console.log('Certificate saved via RPC:', res.data); if(res.data&&res.data.certificate_id){cert._supaId=res.data.certificate_id} }
+    else { console.log('Certificate saved via RPC:', res.data); if(res.data&&res.data.certificate_id){cert._supaId=res.data.certificate_id} scheduleCustomerReload(); }
   });
 }
 // ES5 UUID v4 generator
@@ -10420,8 +10398,73 @@ function loadJobExpenses(){
     render();
   });
 }
+// Load (or reload) this engineer's customers; keeps any not-yet-saved local customers
+function loadEngineerCustomers() {
+  if (!currentUser || !sb) return;
+  sb.from('engineer_customers').select('*').eq('engineer_id', currentUser.id).order('full_name', { ascending: true }).then(function(res) {
+    if(res.error){console.log('Load customers error:',res.error.message);return}
+    if (!res.data || !res.data.length) return;
+    var dbNames={};
+    var dbCustomers = res.data.map(function(c) {
+      var _nm = c.full_name || '';
+      dbNames[_nm.toLowerCase()]=true;
+      return {
+        id: c.id, _supaId: c.id, linkedCustomerId: c.linked_customer_id || null,
+        name: _nm, ini: (_nm || 'XX').split(' ').map(function(w){return w[0]||''}).join('').substring(0,2).toUpperCase(),
+        addr: c.address || '', email: c.email || '', phone: c.phone || '',
+        postcode: c.postcode || '', houseNumber: c.house_number || '',
+        boiler: c.boiler || '—', company: c.is_company ? _nm : '',
+        contactPerson: c.contact_person || '', refPrefix: c.ref_prefix || '',
+        last: '', next: '', jobs: 0, spent: 0, c: c.is_company ? 'purple' : 'teal', isCompany: !!c.is_company, hist: [],
+        source: c.source || 'manual'
+      };
+    });
+    var unsaved = customers.filter(function(c){
+      var sid=String(c._supaId||c.id||'');
+      return sid.indexOf('-')===-1 && !dbNames[String(c.name||'').toLowerCase()];
+    });
+    customers = dbCustomers.concat(unsaved);
+    if (S.selCustomer && S.selCustomer._supaId) {
+      var cur = customers.find(function(x){return x._supaId===S.selCustomer._supaId});
+      if (cur) S.selCustomer = cur;
+    }
+    syncCustomerInvoices();
+    render();
+  });
+}
+var _custReloadTimer=null;
+function scheduleCustomerReload(){
+  if(_custReloadTimer)clearTimeout(_custReloadTimer);
+  _custReloadTimer=setTimeout(loadEngineerCustomers,2000);
+}
+function _likeEsc(v){return String(v||'').replace(/[\\%_]/g,function(ch){return '\\'+ch})}
 function saveCustomerToSupabase(cust) {
   if (!currentUser || !sb) return;
+  var known = cust._supaId || (typeof cust.id === 'string' && cust.id.indexOf('-') > -1);
+  if (!known) {
+    // New customer: reuse an existing record with the same email (or same name) instead of creating a duplicate
+    var em = String(cust.email || '').trim();
+    var nm = String(cust.name || '').trim();
+    var q = sb.from('engineer_customers').select('id').eq('engineer_id', currentUser.id).limit(1);
+    q = em ? q.ilike('email', _likeEsc(em)) : q.ilike('full_name', _likeEsc(nm));
+    q.then(function(fr) {
+      if (!fr.error && fr.data && fr.data.length) {
+        cust._supaId = fr.data[0].id;
+        _saveCustomerRow(cust, true);
+      } else if (em && nm) {
+        sb.from('engineer_customers').select('id').eq('engineer_id', currentUser.id).ilike('full_name', _likeEsc(nm)).limit(1).then(function(fr2) {
+          if (!fr2.error && fr2.data && fr2.data.length) { cust._supaId = fr2.data[0].id; _saveCustomerRow(cust, true); }
+          else { _saveCustomerRow(cust, false); }
+        });
+      } else {
+        _saveCustomerRow(cust, false);
+      }
+    });
+    return;
+  }
+  _saveCustomerRow(cust, false);
+}
+function _saveCustomerRow(cust, mergeOnly) {
   var custId = cust._supaId || cust.id;
   // Ensure UUID format
   if (typeof custId !== 'string' || custId.indexOf('-') === -1) {
@@ -10445,10 +10488,22 @@ function saveCustomerToSupabase(cust) {
     source: cust.source || 'manual',
     updated_at: new Date().toISOString()
   };
+  if (mergeOnly) {
+    // Existing record found: only fill in details that were provided, never blank out what is already saved
+    var upd = {updated_at: row.updated_at};
+    ['email','phone','address','house_number','postcode','contact_person','ref_prefix','boiler'].forEach(function(k){ if (row[k]) upd[k] = row[k]; });
+    if (row.linked_customer_id) upd.linked_customer_id = row.linked_customer_id;
+    if (row.is_company) upd.is_company = true;
+    sb.from('engineer_customers').update(upd).eq('id', custId).then(function(res) {
+      if (res.error) { console.log('Update customer error:', res.error.message); }
+      else { console.log('Existing customer updated (no duplicate created):', custId); scheduleCustomerReload(); }
+    });
+    return;
+  }
   // Privacy: engineer-owned record, never the customer's own account row
   sb.from('engineer_customers').upsert(row, {onConflict: 'id'}).then(function(res) {
     if (res.error) { console.log('Save customer error:', res.error.message); }
-    else { console.log('Customer saved to Supabase:', custId); }
+    else { console.log('Customer saved to Supabase:', custId); scheduleCustomerReload(); }
   });
 }
 function saveExpenseToSupabase(exp) {
@@ -10492,7 +10547,7 @@ function saveQuoteToSupabase(q) {
     p_expiry_date: q.expiryDate || null
   }).then(function(res) {
     if (res.error) { console.log('Save quote RPC error:', res.error.message); }
-    else { console.log('Quote saved via RPC:', res.data); if (res.data && res.data.quote_id) { q._supaId = res.data.quote_id; } }
+    else { console.log('Quote saved via RPC:', res.data); if (res.data && res.data.quote_id) { q._supaId = res.data.quote_id; } scheduleCustomerReload(); }
   });
 }
 function updateQuoteStatusInSupabase(quoteNumber, status, acceptedSlot, scheduledDate, scheduledTime) {
