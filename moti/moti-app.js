@@ -229,6 +229,17 @@
         var reply = d.reply || "";
         convo.push({ role: "user", content: text });
         if (reply) { botSay(reply); convo.push({ role: "assistant", content: reply }); }
+        if (d.open_import) {
+          /* The import runs inside HomeLinq Pro (it needs the full app), so link there */
+          var imp = document.createElement("div");
+          imp.className = "msg bot";
+          imp.appendChild(document.createTextNode("Importing happens in HomeLinq Pro: "));
+          var a = document.createElement("a");
+          a.href = "app.html#import"; a.textContent = "open HomeLinq Pro and start the import";
+          a.style.color = "inherit"; a.style.fontWeight = "700";
+          imp.appendChild(a);
+          elBody.appendChild(imp); elBody.scrollTop = elBody.scrollHeight;
+        }
         if (d.proposal) { addConfirmCard(d.proposal); }
         else { renderChips(); }
       })

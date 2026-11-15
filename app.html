@@ -6091,7 +6091,7 @@ function processAccountMessage(msg){
     if(q.indexOf('setting')!==-1||q.indexOf('branding')!==-1||q.indexOf('logo')!==-1) return ['To set up your profile and branding:\n\n1. Go to <strong>Settings</strong> in the sidebar\n2. Fill in your business details, Gas Safe number, and contact info\n3. Upload your <strong>logo</strong> and <strong>signature</strong> under Branding\n4. Set your work hours and days\n\nYour logo appears on invoices, quotes, and certificates. Your signature appears on certificates and completed job sheets.'];
     if(q.indexOf('expense')!==-1) return ['To log expenses:\n\n1. Go to <strong>Expenses</strong> in the sidebar\n2. Click <strong>"+ Add Expense"</strong>\n3. Choose the HMRC category (parts, fuel, tools, etc.)\n4. Enter the amount and details\n\nExpenses auto-feed into your <strong>Tax Dashboard</strong> for Self Assessment. Categories map to SA103 boxes.'];
     if(q.indexOf('customer')!==-1) return ['To manage customers:\n\n1. Go to <strong>Customers</strong> in the sidebar\n2. Click on any customer to see their full history\n3. You\'ll see all their jobs, invoices, and certificates\n\nCustomers are auto-created when you add jobs or send invoices. You can also add them manually.'];
-    if(q.indexOf('import')!==-1||q.indexOf('transfer')!==-1||q.indexOf('migrate')!==-1) return ['To import data from another platform:\n\n1. Go to <strong>Settings</strong> → <strong>Import Data</strong>\n2. Choose the data type (Customers, Jobs, Invoices, Certificates, Expenses)\n3. Upload your CSV file\n4. Map the columns and confirm\n\nWorks with exports from Commusoft, Joblogic, ServiceM8, Tradify, BigChange, or any CSV.'];
+    if(q.indexOf('import')!==-1||q.indexOf('transfer')!==-1||q.indexOf('migrate')!==-1) return ['To bring your data over from another platform, tap the <strong>📎</strong> in the Moti chat, or go to <strong>Settings</strong> → <strong>Import Data</strong> → <strong>Start import</strong>.\n\nUpload your exported files (CSV or Excel — several at once). Moti reads them with you, you review every row, and nothing is saved until you press Import. You can undo an import afterwards.\n\nWorks with Commusoft, Gas Engineer Software, Tradify, Joblogic, ServiceM8, BigChange or any spreadsheet.'];
     if(q.indexOf('export')!==-1||q.indexOf('download')!==-1||q.indexOf('backup')!==-1) return ['To export your data:\n\n1. Go to <strong>Settings</strong> → <strong>Export My Data</strong>\n2. Click the button for what you want to download\n\nAll data exports as CSV. Your data is yours — no lock-in.'];
     // General how-to
     return ['I can help you with how to use any part of HomeLinq! Try asking about:\n\n• <strong>Invoices</strong> — creating, sending, chasing payments\n• <strong>Quotes</strong> — sending quotes with time slots\n• <strong>Certificates</strong> — CP12, gas safety records\n• <strong>Import data</strong> — bring data from your current platform\n• <strong>Export data</strong> — download everything as CSV\n• <strong>Payments</strong> — Stripe Connect setup\n• <strong>Settings</strong> — profile, branding, logo\n• <strong>Expenses</strong> — logging, HMRC categories\n\nJust say "how do I..." and I\'ll walk you through it!'];
@@ -6128,7 +6128,7 @@ function processAccountMessage(msg){
 
   // === IMPORT DATA ===
   if(q.indexOf('import')!==-1||q.indexOf('transfer')!==-1||q.indexOf('migrate')!==-1||q.indexOf('bring my data')!==-1||q.indexOf('switch from')!==-1||q.indexOf('move my data')!==-1){
-    return ['To import your data from another platform:\n\n1. Go to <strong>Settings</strong> in the sidebar\n2. Scroll down to <strong>"Import Data"</strong>\n3. Choose what to import (Customers, Jobs, Invoices, Certificates, or Expenses)\n4. Upload a <strong>CSV file</strong> exported from your current system\n5. HomeLinq auto-matches the columns — review and confirm\n6. Done! Your data is imported.\n\n💡 Works with <strong>Commusoft, Joblogic, ServiceM8, Tradify, BigChange</strong>, or any platform that exports CSV.\n\nYou can also download a blank template to fill in manually if you\'re coming from paper records.'];
+    return ['To import your data from another platform:\n\n1. Tap the <strong>📎</strong> in the Moti chat — or go to <strong>Settings</strong> → <strong>Import Data</strong> → <strong>Start import</strong>\n2. Upload the files you exported (customers, jobs, invoices, certificates, expenses — CSV or Excel, several at once)\n3. Moti works out what each file is and talks it through with you\n4. <strong>Review</strong> every row — problems, duplicates and totals\n5. Press Import. If anything looks wrong afterwards, you can <strong>Undo</strong> the whole import.\n\n💡 Works with <strong>Commusoft, Gas Engineer Software, Tradify, Joblogic, ServiceM8, BigChange</strong> or any spreadsheet.\n\nComing from paper records? The import screen has blank templates you can fill in.'];
   }
 
   // === EXPORT DATA ===
@@ -9811,7 +9811,6 @@ function getEngineerEarnings(){
   return earnings;
 }
 // ===== DATA IMPORT / EXPORT =====
-var importState={step:0,type:'',file:null,headers:[],rows:[],mapping:{},preview:[]};
 var IMPORT_TYPES={
   customers:{label:'Customers',icon:'👥',fields:['name','email','phone','address','postcode','company'],required:['name']},
   jobs:{label:'Jobs',icon:'📋',fields:['date','customer','email','phone','type','description','address','postcode','price','status','time','ref'],required:['date','customer']},
@@ -9820,32 +9819,32 @@ var IMPORT_TYPES={
   expenses:{label:'Expenses',icon:'💸',fields:['date','amount','category','description','vendor'],required:['amount','description']}
 };
 var IMPORT_SYNONYMS={
-  name:['name','fullname','customername','client','clientname','customer','contactname'],
+  name:['fullnamecombined','name','fullname','customername','client','clientname','customer','contactname','contact','accountname'],
   email:['email','emailaddress','e-mail','customeremail','clientemail'],
-  phone:['phone','telephone','tel','mobile','mobileno','phonenumber','contactnumber'],
-  address:['address','addressline1','street','address1','fulladdress','propertyaddress','siteaddress'],
+  phone:['mobile','mobileno','mobilenumber','phone','telephone','tel','phonenumber','contactnumber','landline','contactphone','contactmobile'],
+  address:['fulladdresscombined','address','fulladdress','propertyaddress','siteaddress','jobaddress','billingaddress','addressline1','street','address1'],
   postcode:['postcode','postalcode','zip','zipcode','post code'],
   company:['company','companyname','business','organisation','organization'],
-  date:['date','jobdate','scheduleddate','invoicedate','issuedate','visitdate','expensedate'],
-  customer:['customer','customername','client','clientname','name','billto'],
+  date:['date','jobdate','scheduleddate','appointmentdate','planneddate','invoicedate','issuedate','dateissued','issueddate','inspectiondate','visitdate','expensedate','startdate','completeddate','completiondate','loggeddate','createdon','createddate','datecreated'],
+  customer:['fullnamecombined','customer','customername','client','clientname','name','billto','contact','contactname','accountname','companyname','sitename'],
   type:['type','jobtype','service','servicetype','worktype'],
   description:['description','desc','notes','details','work','jobdescription','memo'],
   price:['price','amount','total','cost','charge','value'],
   status:['status','jobstatus','invoicestatus','paid','state'],
   time:['time','starttime','scheduledtime','appointmenttime'],
-  ref:['ref','reference','jobref','jobnumber','jobno','id'],
+  ref:['jobnumber','jobno','jobref','jobid','ref','reference','id'],
   number:['number','invoicenumber','invoiceno','invno','invoiceref','invoiceid','reference'],
   dueDate:['duedate','due','paymentdue','datedue'],
-  total:['total','amount','grandtotal','totalamount','invoicetotal','gross'],
+  total:['totalincvat','totalinclvat','totalincludingvat','grosstotal','grossamount','grandtotal','invoicetotal','totalamount','total','gross','amount'],
   vat:['vat','tax','vatamount','taxamount'],
   items:['items','lineitems','products','lines'],
   certNumber:['certnumber','certificatenumber','certno','certificateno','serial','recordnumber'],
   certType:['certtype','certificatetype','type','recordtype'],
-  recipientName:['recipientname','recipient','customer','customername','name'],
+  recipientName:['recipientname','recipient','fullnamecombined','customer','customername','name','contactname'],
   recipientEmail:['recipientemail','email','customeremail','landlordemail'],
   landlord:['landlord','landlordname','owner'],
   tenant:['tenant','tenantname','occupier'],
-  prop:['prop','property','propertyaddress','address','siteaddress','installationaddress'],
+  prop:['propertyaddresscombined','prop','propertyaddress','property','installationaddress','siteaddress','fulladdresscombined','address'],
   expiry:['expiry','expirydate','nextdue','nextinspection','nextinspectiondate','renewaldate'],
   result:['result','outcome','inspectionresult','pass'],
   engineerName:['engineer','engineername','issuedby','inspector'],
@@ -9857,14 +9856,16 @@ var IMPORT_SYNONYMS={
 };
 function _impNorm(h){return String(h||'').toLowerCase().replace(/[^a-z0-9]/g,'')}
 function _impAutoMap(type,headers){
-  var mapping={};var used={};
-  var fields=IMPORT_TYPES[type].fields;
+  var mapping={},used={},fields=IMPORT_TYPES[type].fields,norm={};
+  headers.forEach(function(h){norm[h]=_impNorm(h)});
   fields.forEach(function(f){
     var syn=(IMPORT_SYNONYMS[f]||[f]).map(_impNorm);
-    var best=null;
-    headers.forEach(function(h){if(best||used[h])return;var n=_impNorm(h);if(syn.indexOf(n)!==-1)best=h});
-    if(!best){headers.forEach(function(h){if(best||used[h])return;var n=_impNorm(h);for(var k=0;k<syn.length;k++){if(syn[k].length>3&&n.indexOf(syn[k])!==-1){best=h;break}}})}
-    if(best){mapping[f]=best;used[best]=true}
+    for(var k=0;k<syn.length&&!mapping[f];k++){for(var i=0;i<headers.length;i++){var h=headers[i];if(!used[h]&&norm[h]===syn[k]){mapping[f]=h;used[h]=true;break}}}
+  });
+  fields.forEach(function(f){
+    if(mapping[f])return;var syn=(IMPORT_SYNONYMS[f]||[f]).map(_impNorm);
+    for(var i=0;i<headers.length&&!mapping[f];i++){var h=headers[i];if(used[h])continue;
+      for(var k=0;k<syn.length;k++){if(syn[k].length>3&&norm[h].indexOf(syn[k])!==-1){mapping[f]=h;used[h]=true;break}}}
   });
   return mapping;
 }
@@ -9878,50 +9879,6 @@ function _loadSheetJS(cb){
   sc.onload=function(){_sheetJsLoading=false;cb(null)};
   sc.onerror=function(){_sheetJsLoading=false;cb('Could not load the Excel reader — check your connection, or save the file as CSV')};
   document.head.appendChild(sc);
-}
-function _impSetRows(headers,rows,fileName){
-  headers=headers.filter(function(h){return h!==undefined&&h!==null&&String(h).trim()!==''}).map(function(h){return String(h).trim()});
-  rows=rows.filter(function(r){for(var k in r){if(r.hasOwnProperty(k)&&String(r[k]===null||r[k]===undefined?'':r[k]).trim()!=='')return true}return false});
-  if(!headers.length||!rows.length){toast('error','No rows found in '+fileName+' — is the first row the column headings?');return}
-  importState.headers=headers;
-  importState.rows=rows;
-  importState.mapping=_impAutoMap(importState.type,headers);
-  importState.preview=rows.slice(0,5);
-  importState.step=2;
-  render();
-}
-function handleImportFile(input){
-  var file=input.files&&input.files[0];if(!file)return;
-  if(file.size>20*1024*1024){toast('error','File is too large (max 20 MB). Split it into smaller files.');return}
-  importState.file=file;
-  var name=String(file.name||'').toLowerCase();
-  var isExcel=/\.(xlsx|xlsm|xls)$/.test(name);
-  if(isExcel){
-    toast('info','Reading Excel file...');
-    _loadSheetJS(function(err){
-      if(err){toast('error',err);return}
-      var reader=new FileReader();
-      reader.onload=function(e){
-        try{
-          var wb=window.XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true});
-          var ws=wb.Sheets[wb.SheetNames[0]];
-          var rows=window.XLSX.utils.sheet_to_json(ws,{defval:'',raw:false,dateNF:'yyyy-mm-dd'});
-          var headers=rows.length?Object.keys(rows[0]):[];
-          _impSetRows(headers,rows,file.name);
-        }catch(ex){console.log('Excel parse error:',ex);toast('error','Could not read this Excel file — try saving it as CSV')}
-      };
-      reader.readAsArrayBuffer(file);
-    });
-    return;
-  }
-  if(!/\.(csv|txt|tsv)$/.test(name)){toast('error','Please upload a CSV or Excel (.xlsx) file');return}
-  Papa.parse(file,{header:true,skipEmptyLines:'greedy',dynamicTyping:false,
-    complete:function(result){
-      if(result.errors&&result.errors.length&&!result.data.length){toast('error','Could not read this file. Make sure it is a CSV.');return}
-      _impSetRows(result.meta.fields||[],result.data||[],file.name);
-    },
-    error:function(){toast('error','Could not read this file')}
-  });
 }
 function _impStr(v){return v===undefined||v===null?'':String(v).trim()}
 function _impPhone(v){
@@ -9948,120 +9905,21 @@ function _impJobStatus(v){var s=_impStr(v).toLowerCase();if(!s)return 'completed
 function _impInvStatus(v){var s=_impStr(v).toLowerCase();if(s==='paid'||s==='yes'||s==='true'||s.indexOf('paid in full')>-1||(s.indexOf('paid')>-1&&s.indexOf('unpaid')===-1&&s.indexOf('part')===-1))return 'paid';if(s.indexOf('cancel')>-1||s.indexOf('void')>-1)return 'cancelled';return 'unpaid'}
 function _impCertType(v){var s=_impStr(v).toLowerCase();if(s.indexOf('non')>-1||s.indexOf('commercial')>-1)return 'non_domestic';if(s.indexOf('oil')>-1)return 'oil';if(s.indexOf('warn')>-1||s.indexOf('advis')>-1)return 'warning';if(s.indexOf('commission')>-1)return 'commissioning';return 'domestic'}
 function _impChunks(arr,size){var out=[];for(var i=0;i<arr.length;i+=size)out.push(arr.slice(i,i+size));return out}
-function _impProgress(done,total,label){importState.done=done;importState.total=total;importState.progressLabel=label||'';var el=document.getElementById('imp-progress');if(el){el.innerHTML='Importing '+done+' / '+total+'…';var bar=document.getElementById('imp-bar');if(bar)bar.style.width=(total?Math.round(done*100/total):0)+'%'}}
-function _impInsertAll(table,records,cb){
-  var chunks=_impChunks(records,200);var ok=0,failed=0,errs=[];var i=0;
-  function next(){
-    if(i>=chunks.length){cb(ok,failed,errs);return}
-    var ch=chunks[i++];
-    sb.from(table).insert(ch).then(function(res){
-      if(res.error){failed+=ch.length;errs.push(res.error.message);console.log('Import batch error ('+table+'):',res.error.message)}
-      else{ok+=ch.length}
-      _impProgress(ok+failed,records.length);
-      next();
-    });
-  }
-  next();
-}
-function _impNewCtx(){
-  var ctx={seenE:{},seenP:{},seenNP:{},existingNums:{},existingCerts:{},today:localDateKey(new Date())};
-  customers.forEach(function(c){var e=_impStr(c.email).toLowerCase();if(e)ctx.seenE[e]=1;var pk=_impPhoneKey(c.phone);if(pk)ctx.seenP[pk]=1;ctx.seenNP[_impStr(c.name).toLowerCase()+'|'+_impStr(c.postcode).toLowerCase().replace(/\s/g,'')]=1});
-  invoices.forEach(function(i){ctx.existingNums[String(i.id).toUpperCase()]=1});
-  (cp12Certs||[]).forEach(function(c){ctx.existingCerts[String(c.id).toUpperCase()]=1});
-  return ctx;
-}
-// Turns mapped spreadsheet rows into database records. Shared by the wizard and the quick importer.
-function _impBuild(type,mapping,rows,batchId,ctx,opts){
-  var df=(opts&&opts.dateFormat)||null;
-  var uid=currentUser.id;
-  var get=function(row,f){var col=mapping[f];return col?row[col]:''};
-  var records=[];var skipped=0;var invalid=0;var tag=batchId.substring(0,6);
-  if(type==='customers'){
-    rows.forEach(function(row){
-      var name=_impStr(get(row,'name'));if(!name){invalid++;return}
-      var email=_impStr(get(row,'email'));var phone=_impPhone(get(row,'phone'));var pc=_impStr(get(row,'postcode')).toUpperCase();
-      var ek=email.toLowerCase(),pk=_impPhoneKey(phone),nk=name.toLowerCase()+'|'+pc.toLowerCase().replace(/\s/g,'');
-      if((ek&&ctx.seenE[ek])||(pk&&ctx.seenP[pk])||ctx.seenNP[nk]){skipped++;return}
-      if(ek)ctx.seenE[ek]=1;if(pk)ctx.seenP[pk]=1;ctx.seenNP[nk]=1;
-      var comp=_impStr(get(row,'company'));
-      records.push({engineer_id:uid,full_name:name,email:email,phone:phone,address:_impStr(get(row,'address')),postcode:pc,
-        is_company:!!comp&&comp.toLowerCase()===name.toLowerCase(),source:'import',import_batch_id:batchId});
-    });
-  }else if(type==='jobs'){
-    rows.forEach(function(row,ix){
-      var d=_impDate(get(row,'date'),df);var cust=_impStr(get(row,'customer'));if(!d||!cust){invalid++;return}
-      var ref=_impStr(get(row,'ref'));
-      records.push({engineer_id:uid,job_number:'IMP-'+(ref||tag+'-'+(ix+1)),scheduled_date:d,scheduled_time:_impStr(get(row,'time'))||'09:00',
-        customer_name:cust,customer_email:_impStr(get(row,'email')),customer_phone:_impPhone(get(row,'phone')),address:_impStr(get(row,'address')),postcode:_impStr(get(row,'postcode')).toUpperCase(),
-        description:[_impStr(get(row,'type')),_impStr(get(row,'description'))].filter(function(x){return x}).join(' — ')||'Imported job',
-        price:_impMoney(get(row,'price')),status:_impJobStatus(get(row,'status')),source:'direct',import_batch_id:batchId});
-    });
-  }else if(type==='invoices'){
-    rows.forEach(function(row,ix){
-      var cust=_impStr(get(row,'customer'));var total=_impMoney(get(row,'total'));if(!cust||!total){invalid++;return}
-      var orig=_impStr(get(row,'number'));
-      var num='IMP-'+(orig?orig.replace(/^IMP-/i,''):tag+'-'+(ix+1));
-      if(ctx.existingNums[num.toUpperCase()]){skipped++;return}
-      ctx.existingNums[num.toUpperCase()]=1;
-      var vat=_impMoney(get(row,'vat'));var st=_impInvStatus(get(row,'status'));var d=_impDate(get(row,'date'),df);
-      records.push({engineer_id:uid,invoice_number:num,customer_name:cust,customer_email:_impStr(get(row,'email')),
-        description:_impStr(get(row,'items'))||'Imported invoice',amount:Math.round((total-vat)*100)/100,vat:vat,total:total,status:st,
-        sent_date:d?d+'T12:00:00Z':null,due_date:_impDate(get(row,'dueDate'),df),paid_date:st==='paid'?(d?d+'T12:00:00Z':new Date().toISOString()):null,
-        chase_count:0,meta:{imported:true,originalNumber:orig},import_batch_id:batchId});
-    });
-  }else if(type==='certificates'){
-    var soon=localDateKey(new Date(Date.now()+60*86400000));
-    rows.forEach(function(row,ix){
-      var prop=_impStr(get(row,'prop'));if(!prop){invalid++;return}
-      var issue=_impDate(get(row,'date'),df);var exp=_impDate(get(row,'expiry'),df);
-      var status=!exp?'valid':(exp<ctx.today?'expired':(exp<soon?'expiring_soon':'valid'));
-      var orig=_impStr(get(row,'certNumber'));
-      var num='IMP-'+(orig||tag+'-'+(ix+1));
-      if(ctx.existingCerts[num.toUpperCase()]){skipped++;return}
-      ctx.existingCerts[num.toUpperCase()]=1;
-      var recip=_impStr(get(row,'recipientName'))||_impStr(get(row,'landlord'))||_impStr(get(row,'tenant'));
-      var res=_impStr(get(row,'result')).toUpperCase()||'PASS';
-      records.push({engineer_id:uid,certificate_number:num,cert_type:_impCertType(get(row,'certType')),
-        property_address:prop,landlord_name:_impStr(get(row,'landlord')),tenant_name:_impStr(get(row,'tenant')),landlord_email:_impStr(get(row,'recipientEmail'))||null,
-        issue_date:issue,expiry_date:exp,status:status,inspection_result:res,appliances:[],
-        engineer_name:_impStr(get(row,'engineerName')),gas_safe_number:_impStr(get(row,'gasSafe')),
-        data:{importedRecord:true,originalNumber:orig,originalEngineer:_impStr(get(row,'engineerName')),originalGasSafe:_impStr(get(row,'gasSafe')),
-          recipientName:recip,recipientEmail:_impStr(get(row,'recipientEmail')),recipientType:_impStr(get(row,'recipientType'))||'landlord',prop:prop,date:issue||'',expiry:exp||'',result:res,sent:false},
-        import_batch_id:batchId});
-    });
-  }else if(type==='expenses'){
-    rows.forEach(function(row){
-      var amt=_impMoney(get(row,'amount'));var desc=_impStr(get(row,'description'));if(!amt||!desc){invalid++;return}
-      var vendor=_impStr(get(row,'vendor'));var cat=_impStr(get(row,'category'));
-      records.push({engineer_id:uid,date:_impDate(get(row,'date'),df)||localDateKey(new Date()),description:desc+(vendor?' ('+vendor+')':''),amount:amt,
-        category:(cat||'other').toLowerCase(),category_label:cat||'Other',has_receipt:false,import_batch_id:batchId});
-    });
-  }
-  return {records:records,skipped:skipped,invalid:invalid};
-}
 var IMPORT_TABLES={customers:'engineer_customers',jobs:'jobs',invoices:'invoices',certificates:'cp12_certificates',expenses:'general_expenses'};
-function executeImport(){
-  if(!currentUser||!sb){toast('error','Please sign in first');return}
-  var type=importState.type,mapping=importState.mapping,rows=importState.rows;
-  var t=IMPORT_TYPES[type];
-  for(var r=0;r<t.required.length;r++){if(!mapping[t.required[r]]){toast('error','Please choose a column for "'+t.required[r]+'"');return}}
-  var batchId=genUUID();
-  var b=_impBuild(type,mapping,rows,batchId,_impNewCtx());
-  if(!b.records.length){importState={step:3,type:type,imported:0,total:rows.length,skipped:b.skipped,invalid:b.invalid,failed:0,errors:[]};render();return}
-  importState.step=4;importState.total=b.records.length;importState.done=0;render();
-  _impInsertAll(IMPORT_TABLES[type],b.records,function(ok,failed,errs){
-    importState={step:3,type:type,imported:ok,total:rows.length,skipped:b.skipped,invalid:b.invalid,failed:failed,errors:errs,batchId:batchId};
-    render();
-    if(ok>0){toast('success',ok+' '+IMPORT_TYPES[type].label.toLowerCase()+' imported');loadEngineerData();loadEngineerCustomers()}
-  });
-}
 
 // ===== IMPORT WIZARD (Phase 1A) =====
 var WIZ_SOFTWARE=[['commusoft','Commusoft'],['gas_engineer_software','Gas Engineer Software'],['tradify','Tradify'],['joblogic','Joblogic'],['servicem8','ServiceM8'],['bigchange','BigChange'],['spreadsheet','Paper / Excel'],['unknown','Not sure']];
 var WIZ_ORDER=['customers','jobs','invoices','certificates','expenses'];
 var WIZ_MAX_CSV=100*1024*1024,WIZ_MAX_XLS=50*1024*1024;
 var wiz={open:false};
-function openImportWizard(){wiz={open:true,step:'software',software:'',files:[],batchId:null,results:[]};render()}
+function openImportWizard(){wiz={open:true,step:'software',software:'',files:[],batchId:null,results:[]};render();_wizLoadBatches()}
+// Called by the Moti chat: 📎 files go straight to the upload step (Moti works out the software from the files)
+window.motiOpenImport=function(files){
+  if(!currentUser||!S||!S.engineer){toast('warning','Sign in as an engineer to import your data');return false}
+  openImportWizard();
+  if(files&&files.length){wiz.software='unknown';wiz.step='upload';render();wizAddFiles({files:files,value:''})}
+  return true;
+};
 function closeImportWizard(){if(wiz.step==='importing'){toast('warning','Please wait until the import finishes');return}wiz={open:false};render()}
 function _wizDetectType(headers){
   var n=headers.map(_impNorm).join('|');
@@ -10070,7 +9928,7 @@ function _wizDetectType(headers){
   has(['invoice','invno','duedate','amountdue','balance','paiddate'],'invoices',3);
   has(['total','vat','paid','status'],'invoices',1);
   has(['certificate','certno','cp12','expiry','nextinspection','landlord','tenant','gassafe','appliance'],'certificates',3);
-  has(['jobdate','scheduled','appointment','jobtype','jobref','jobnumber','visit','engineer'],'jobs',3);
+  has(['jobdate','scheduled','appointment','jobtype','jobref','jobnumber','jobno','jobid','jobaddress','jobdescription','jobstatus','planneddate','visit','engineer'],'jobs',3);
   has(['date','description','price','time'],'jobs',1);
   has(['expense','supplier','vendor','merchant','receipt','category'],'expenses',3);
   has(['postcode','mobile','phone','email','address','company','clientname','customername'],'customers',1);
@@ -10117,10 +9975,37 @@ function _wizFileReady(f,headers,rows){
   headers=headers.filter(function(h){return h!==undefined&&h!==null&&String(h).trim()!==''}).map(function(h){return String(h).trim()});
   rows=rows.filter(function(r){for(var k in r){if(r.hasOwnProperty(k)&&String(r[k]===null||r[k]===undefined?'':r[k]).trim()!=='')return true}return false});
   if(!headers.length||!rows.length){f.status='error';f.error='No rows found — is the first row the column headings?';render();return}
-  f.headers=headers;f.rows=rows;f.type=_wizDetectType(headers);f.mapping=_impAutoMap(f.type,headers);f.status='ready';
+  f.type=_wizDetectType(headers);
+  f.derived=_wizDerive(headers,rows);
+  f.headers=headers;f.rows=rows;f.mapping=_impAutoMap(f.type,headers);f.status='ready';
   try{f.profile=_wizProfile(f)}catch(e){console.log('Profile error:',e)}
   render();
   _wizAnalyse(f);
+}
+// Many systems export first name / surname and address lines separately: add combined columns so a whole name and address are imported
+function _wizDerive(headers,rows){
+  var n=headers.map(_impNorm),added=[];
+  function find(list){for(var k=0;k<list.length;k++){for(var i=0;i<n.length;i++){if(n[i]===list[k])return headers[i]}}return null}
+  var first=find(['firstname','forename','forenames','givenname','contactfirst','contactfirstname','customerfirstname','first']);
+  var last=find(['surname','lastname','familyname','contactlast','contactlastname','customersurname','customerlastname','last']);
+  var full=find(['name','fullname','customername','clientname','contactname','contact']);
+  if(first&&last&&!full){
+    rows.forEach(function(r){r['Full name (combined)']=[_impStr(r[first]),_impStr(r[last])].filter(function(x){return x}).join(' ')});
+    headers.push('Full name (combined)');added.push('Full name (combined)');
+  }
+  var parts=[find(['addressline1','address1','street','billingaddress','siteaddressline1','address']),find(['addressline2','address2','billingaddress2','siteaddressline2']),
+    find(['addressline3','address3','locality','district']),find(['town','city','towncity','billingcity','suburb','billingsuburb']),find(['county','region','state'])].filter(function(x){return x});
+  if(parts.length>=2){
+    rows.forEach(function(r){var seen={};r['Full address (combined)']=parts.map(function(p){return _impStr(r[p])}).filter(function(x){var k=x.toLowerCase();if(!x||seen[k])return false;seen[k]=1;return true}).join(', ')});
+    headers.push('Full address (combined)');added.push('Full address (combined)');
+  }
+  // certificates: property address + separate property postcode
+  var pa=find(['propertyaddress','installationaddress','siteaddress']),pp=find(['propertypostcode','installationpostcode','sitepostcode']);
+  if(pa&&pp){
+    rows.forEach(function(r){var a=_impStr(r[pa]),c=_impStr(r[pp]);r['Property address (combined)']=c&&a.toUpperCase().replace(/\s/g,'').indexOf(c.toUpperCase().replace(/\s/g,''))===-1?(a?a+', ':'')+c.toUpperCase():a});
+    headers.push('Property address (combined)');added.push('Property address (combined)');
+  }
+  return added;
 }
 var _wizFileSeq=1;
 function wizAddFiles(input){
@@ -10155,8 +10040,8 @@ var WIZ_REASON={no_name:'No customer name',no_customer:'No customer',no_date:'No
   bad_amount:'Amount can\'t be read',no_prop:'No property address',no_desc:'No description',no_amount:'No amount',
   zero_total:'Total is £0',negative:'Negative amount',vat_gt_total:'VAT is more than the total',future_date:'Date is in the future',
   old_date:'Very old date',expiry_before_issue:'Expiry is before the issue date',bad_email:'Email looks wrong',bad_phone:'Phone looks wrong',
-  bad_postcode:'Postcode looks wrong',date_dropped:'A date can\'t be read — it will be left empty',bad_price:'Price can\'t be read — saved as £0',bad_vat:'VAT can\'t be read — saved as £0',dup_existing:'Already in HomeLinq',dup_file:'Appears earlier in your files'};
-var WIZ_BAD={no_name:1,no_customer:1,no_date:1,bad_date:1,no_total:1,bad_amount:1,no_prop:1,no_desc:1,no_amount:1};
+  bad_postcode:'Postcode looks wrong',date_dropped:'A date can\'t be read — it will be left empty',bad_price:'Price can\'t be read — saved as £0',bad_vat:'VAT can\'t be read — saved as £0',no_cert_date:'No issue or expiry date',expiry_assumed:'No expiry date — set to 1 year after issue',issue_assumed:'No issue date — set to 1 year before expiry',dup_existing:'Already in HomeLinq',dup_file:'Appears earlier in your files'};
+var WIZ_BAD={no_cert_date:1,no_name:1,no_customer:1,no_date:1,bad_date:1,no_total:1,bad_amount:1,no_prop:1,no_desc:1,no_amount:1};
 function _wizMoney(v){
   var s=_impStr(v);if(!s)return {e:true,v:0};
   var c=s.replace(/[£$€,\s]|gbp|inc\.?|vat/gi,'');var neg=false;
@@ -10164,6 +10049,7 @@ function _wizMoney(v){
   if(!/^-?\d*\.?\d+$/.test(c))return {bad:true,v:0};
   var n=Math.round(parseFloat(c)*100)/100;return {v:neg?-n:n};
 }
+function _wizAddYears(d,n){var p=String(d).split('-');var dd=p[2];if(p[1]==='02'&&dd==='29')dd='28';return (parseInt(p[0],10)+n)+'-'+p[1]+'-'+dd}
 function _wizDateChk(v,df,out,code){var s=_impStr(v);if(!s)return null;var d=_impDate(s,df);if(!d&&code)out.push(code);return d}
 function _wizNameKey(s){return _impStr(s).toLowerCase().replace(/[^a-z0-9\s]/g,' ').replace(/\b(mr|mrs|ms|miss|dr|mx)\b/g,' ').replace(/\s+/g,' ').trim()}
 function _wizEmailOk(e){return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e)}
@@ -10217,6 +10103,7 @@ function _wizRow(f,row,ix){
   }else if(f.type==='certificates'){
     var prop=_impStr(get('prop'));if(!prop)r.push('no_prop');
     var dc=[];var issue=_wizDateChk(get('date'),df,dc,'x');var exp=_wizDateChk(get('expiry'),df,dc,'x');if(dc.length)r.push('date_dropped');
+    if(!issue&&!exp)r.push('no_cert_date');else if(!exp){exp=_wizAddYears(issue,1);r.push('expiry_assumed')}else if(!issue){issue=_wizAddYears(exp,-1);r.push('issue_assumed')}
     if(issue&&exp&&exp<issue)r.push('expiry_before_issue');if(issue&&issue>tomorrow)r.push('future_date');
     var re=_impStr(get('recipientEmail'));if(re&&!_wizEmailOk(re))r.push('bad_email');
     var soon=localDateKey(new Date(Date.now()+60*86400000));
@@ -10501,69 +10388,166 @@ function _wizRenderReview(){
 function _wizFillPatch(ex,rec){
   var p={};['email','phone','address','postcode'].forEach(function(k){if(rec[k]&&!_impStr(ex[k]))p[k]=rec[k]});return p;
 }
+function _wizIsNetErr(e){return !e||!e.code||/fetch|network|load failed|timed? ?out|connection/i.test(String(e.message||''))}
+function _wizSaveProgress(status){
+  if(!wiz.batchId||!sb)return;
+  var upd={progress:{results:wiz.results,fills:(wiz.priorFills||[]).concat(wiz.fillsDone||[]),file:(wiz.progress||{}).file||'',done:(wiz.progress||{}).done||0,total:(wiz.progress||{}).total||0,saved_at:new Date().toISOString()}};
+  if(status)upd.status=status;
+  sb.from('import_batches').update(upd).eq('id',wiz.batchId).then(function(res){if(res.error)console.log('progress save error:',res.error.message)});
+}
+function wizResumeImport(){if(!wiz.paused)return;var fn=wiz.resumeFn;wiz.paused=false;wiz.resumeFn=null;render();if(fn)fn()}
+if(typeof window!=='undefined'){
+  window.addEventListener('beforeunload',function(e){if(wiz&&wiz.open&&wiz.step==='importing'){e.preventDefault();e.returnValue='Your import is still running.';return 'Your import is still running.'}});
+  window.addEventListener('online',function(){if(wiz&&wiz.paused){toast('success','Back online — carrying on with your import');wizResumeImport()}});
+}
 function wizStartImport(){
   if(wiz.step!=='review'||!wiz.existing){wizGoReview();return}
   if(wiz.chat&&wiz.chat.busy){toast('warning','Moti is replying — one moment');return}
   var ready=_wizReadyFiles().filter(function(f){return f.rv});
   var total=0;ready.forEach(function(f){total+=f.rvStat.c.included+f.rvStat.c.fill});
   if(!total){toast('warning','Nothing to import — every row is left out');return}
-  wiz.step='importing';wiz.results=[];wiz.progress={file:'',done:0,total:0};wiz.edit=null;
+  wiz.step='importing';wiz.results=[];wiz.fillsDone=[];wiz.progress={file:'',done:0,total:0};wiz.edit=null;wiz.paused=false;
   render();
   var filesMeta=ready.map(function(f){return {name:f.name,type:f.type,rows:f.rows.length}});
-  sb.from('import_batches').insert({id:wiz.batchId,engineer_id:currentUser.id,status:'importing',source_software:wiz.software||'unknown',files:filesMeta}).then(function(res){
-    if(res.error)console.log('import_batches insert error:',res.error.message);
+  var row={id:wiz.batchId,engineer_id:currentUser.id,status:'importing',source_software:wiz.software||'unknown',files:filesMeta};
+  sb.from('import_batches').upsert(row,{onConflict:'id'}).then(function(res){
+    if(res.error)console.log('import_batches save error:',res.error.message);
     var idx=0;
     function nextFile(){
       if(idx>=ready.length){_wizFinish();return}
       var f=ready[idx++];var records=[],fills=[];
-      var r={name:f.name,type:f.type,rows:f.rows.length,imported:0,updated:0,skipped:0,invalid:0,excluded:0,failed:0,error:''};f._result=r;wiz.results.push(r);
+      var r={name:f.name,type:f.type,rows:f.rows.length,imported:0,updated:0,skipped:0,invalid:0,excluded:0,failed:0,error:'',failedRows:[]};f._result=r;wiz.results.push(r);
       for(var ix=0;ix<f.rv.length;ix++){
         var v=f.rv[ix];
         if(v.s==='bad'){r.invalid++;continue}
         if(!_wizIncluded(f,ix)){if(v.s==='dup')r.skipped++;else r.excluded++;continue}
         var rec=_wizRow(f,f.rows[ix],ix).rec;
         if(_wizIsFill(f,ix)){fills.push({id:v.dupId,rec:rec});continue}
-        rec.import_batch_id=wiz.batchId;records.push(rec);
+        rec.import_batch_id=wiz.batchId;rec._row=ix+2;records.push(rec);
       }
       wiz.progress={file:f.name,done:0,total:records.length+fills.length};
-      var chunks=_impChunks(records,200);var ci=0;
+      var q=_impChunks(records,200),sent=0;
       function tick(n){wiz.progress.done+=n;var el=document.getElementById('wiz-prog');if(el)el.textContent=f.name+': '+wiz.progress.done.toLocaleString()+' / '+wiz.progress.total.toLocaleString();
         var bar=document.getElementById('wiz-bar');if(bar)bar.style.width=Math.round(wiz.progress.done*100/Math.max(1,wiz.progress.total))+'%'}
+      function clean(ch){return ch.map(function(x){var o={};for(var k in x){if(k!=='_row')o[k]=x[k]}return o})}
       function nextChunk(){
-        if(ci>=chunks.length){nextFill();return}
-        var ch=chunks[ci++];var tries=0;
+        if(!q.length){_wizSaveProgress();nextFill();return}
+        var ch=q.shift();var tries=0;
         (function attempt(){
-          sb.from(IMPORT_TABLES[f.type]).insert(ch).then(function(res2){
-            if(res2.error&&tries<2){tries++;setTimeout(attempt,1500*tries);return}
-            if(res2.error){r.failed+=ch.length;r.error=res2.error.message;console.log('Import error:',res2.error.message)}else{r.imported+=ch.length}
-            tick(ch.length);nextChunk();
+          sb.from(IMPORT_TABLES[f.type]).insert(clean(ch)).then(function(res2){
+            var e=res2.error;
+            if(!e){r.imported+=ch.length;tick(ch.length);if(++sent%5===0)_wizSaveProgress();nextChunk();return}
+            if(_wizIsNetErr(e)){
+              ch._net=true;
+              if(tries<3){tries++;setTimeout(attempt,2000*Math.pow(2,tries-1));return}
+              wiz.paused=true;wiz.resumeFn=function(){tries=0;attempt()};_wizSaveProgress();render();return;
+            }
+            // Saved before the connection dropped — the database already has these rows
+            if(e.code==='23505'&&ch._net&&ch.length===1){r.imported+=1;tick(1);nextChunk();return}
+            // Data problem: split the batch so only the faulty row(s) fail
+            if(ch.length>1){var mid=Math.ceil(ch.length/2);var a=ch.slice(0,mid),b=ch.slice(mid);a._net=b._net=ch._net;q.unshift(b);q.unshift(a);nextChunk();return}
+            r.failed+=1;r.error=e.message;if(r.failedRows.length<50)r.failedRows.push({row:ch[0]._row,error:String(e.message||'').substring(0,160)});
+            console.log('Import row error (row '+ch[0]._row+'):',e.message);tick(1);nextChunk();
           });
         })();
       }
       var fi=0;
       function nextFill(){
-        if(fi>=fills.length){nextFile();return}
+        if(fi>=fills.length){_wizSaveProgress();nextFile();return}
         var it=fills[fi++];var cur=wiz.existing.cust[it.id]||{};var patch=_wizFillPatch(cur,it.rec);
         if(!Object.keys(patch).length){r.skipped++;tick(1);nextFill();return}
-        sb.from('engineer_customers').update(patch).eq('id',it.id).then(function(res3){
-          if(res3.error){r.failed++;r.error=res3.error.message}else{r.updated++;for(var k in patch)cur[k]=patch[k]}
-          tick(1);nextFill();
-        });
+        (function attemptFill(tries){
+          sb.from('engineer_customers').update(patch).eq('id',it.id).then(function(res3){
+            if(res3.error&&_wizIsNetErr(res3.error)&&tries<3){setTimeout(function(){attemptFill(tries+1)},2000*Math.pow(2,tries));return}
+            if(res3.error){r.failed++;r.error=res3.error.message}else{r.updated++;wiz.fillsDone.push({id:it.id,f:patch});for(var k in patch)cur[k]=patch[k]}
+            tick(1);nextFill();
+          });
+        })(0);
       }
       nextChunk();
     }
     nextFile();
   });
 }
-
 function _wizFinish(){
   var counts={};wiz.results.forEach(function(r){counts[r.type]=(counts[r.type]||0)+r.imported});
+  var anyOk=wiz.results.some(function(r){return r.imported>0||r.updated>0});
   var anyFail=wiz.results.some(function(r){return r.failed>0});
-  sb.from('import_batches').update({status:anyFail&&!wiz.results.some(function(r){return r.imported>0})?'failed':'done',counts:counts,finished_at:new Date().toISOString(),progress:{results:wiz.results}}).eq('id',wiz.batchId).then(function(){});
+  sb.from('import_batches').update({status:anyFail&&!anyOk?'failed':'done',counts:counts,finished_at:new Date().toISOString(),
+    progress:{results:wiz.results,fills:(wiz.priorFills||[]).concat(wiz.fillsDone||[]),saved_at:new Date().toISOString()}}).eq('id',wiz.batchId).then(function(){});
   wiz.step='done';render();
   // Confirmed formats become shared templates (column names only) so the next engineer's import is instant
   wiz.files.forEach(function(f){if(f._result&&f._result.imported>0&&!f._result.failed&&!(f.ai&&f.ai.fromTemplate))_wizSaveTemplate(f)});
-  if(wiz.results.some(function(r){return r.imported>0})){loadEngineerData();loadEngineerCustomers()}
+  if(anyOk){loadEngineerData();loadEngineerCustomers()}
+}
+// ===== M4: your recent imports — finish one that stopped part-way, or undo one =====
+function _wizLoadBatches(){
+  if(!sb||!currentUser)return;
+  wiz.batches=null;
+  sb.from('import_batches').select('id,status,source_software,files,counts,progress,created_at,finished_at,undone_at').eq('engineer_id',currentUser.id)
+    .order('created_at',{ascending:false}).limit(8).then(function(res){
+      if(!wiz.open)return;
+      wiz.batches=res.error?[]:(res.data||[]);if(res.error)console.log('import_batches load error:',res.error.message);
+      if(wiz.step==='software')render();
+    });
+}
+function _wizBatchState(b){
+  if(b.status==='undone')return 'undone';
+  if(b.status==='importing'){var t=b.progress&&b.progress.saved_at?Date.parse(b.progress.saved_at):Date.parse(b.created_at);return (Date.now()-t<120000)?'running':'stopped'}
+  return b.status;
+}
+function _wizBatchLine(b){
+  var res=(b.progress&&b.progress.results)||[],imp=0,upd=0;res.forEach(function(r){imp+=r.imported||0;upd+=r.updated||0});
+  var names=(b.files||[]).map(function(x){return x.name}).slice(0,2).join(', ')+((b.files||[]).length>2?' +'+((b.files||[]).length-2)+' more':'');
+  return {imp:imp,upd:upd,names:names||'Import'};
+}
+function _wizBatchesHtml(){
+  if(!wiz.batches||!wiz.batches.length)return '';
+  var h='<div class="fw-800 mt-16 mb-8" style="font-size:14px">Your recent imports</div>';
+  wiz.batches.forEach(function(b){
+    var st=_wizBatchState(b),L=_wizBatchLine(b),busy=wiz.undoing===b.id;
+    var badge={done:['✅','Done','var(--success-light)'],stopped:['⚠️','Stopped part-way','var(--warning-light)'],running:['⏳','Running in another window','var(--blue-light)'],
+      failed:['❌','Failed','var(--danger-light)'],undone:['↩️','Undone','var(--bg)'],draft:['📝','Not started','var(--bg)']}[st]||['','',''];
+    var when=new Date(b.created_at);
+    h+='<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;margin-bottom:6px;flex-wrap:wrap">'+
+      '<div style="flex:1;min-width:200px"><div class="fw-700 text-sm" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(L.names)+'</div>'+
+      '<div class="text-sm text-muted">'+when.toLocaleDateString('en-GB')+' '+when.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})+' · '+L.imp.toLocaleString()+' saved'+(L.upd?' · '+L.upd+' updated':'')+'</div></div>'+
+      '<span style="padding:3px 9px;border-radius:12px;font-size:11px;font-weight:700;background:'+badge[2]+'">'+badge[0]+' '+badge[1]+'</span>'+
+      (st==='stopped'||st==='failed'?'<button class="btn btn-primary btn-sm" onclick="wizFinishBatch(\''+b.id+'\')">Finish it</button>':'')+
+      (st==='done'||st==='stopped'||st==='failed'?'<button class="btn btn-secondary btn-sm" '+(wiz.undoing?'disabled':'')+' onclick="wizUndoBatch(\''+b.id+'\')">'+(busy?'Undoing…':'↩️ Undo')+'</button>':'')+'</div>';
+  });
+  return h;
+}
+function wizFinishBatch(id){
+  var b=(wiz.batches||[]).find(function(x){return x.id===id});if(!b)return;
+  wiz.batchId=b.id;wiz.resumeOf=b;wiz.priorFills=(b.progress&&b.progress.fills)||[];wiz.software=b.source_software||'unknown';
+  wiz.step='upload';render();
+}
+function wizUndoBatch(id){
+  if(wiz.undoing)return;
+  if(!confirm('Undo this import?\n\nEverything it added will be removed. Jobs and customers you have since added new work to (invoices, expenses, quotes) are kept. Details it filled in on existing customers are cleared again.'))return;
+  wiz.undoing=id;render();
+  var loops=0;
+  (function step(){
+    sb.rpc('undo_import_batch',{p_batch:id}).then(function(res){
+      if(res.error){wiz.undoing=null;toast('error','Undo failed: '+res.error.message);render();return}
+      var d=res.data||{};
+      if(!d.done&&++loops<200){step();return}
+      wiz.undoing=null;
+      var c=d.counts||{},removed=(c.customers||0)+(c.jobs||0)+(c.invoices||0)+(c.certificates||0)+(c.expenses||0);
+      var kept=(c.kept_jobs||0)+(c.kept_customers||0);
+      wiz.undoResult={id:id,removed:removed,kept:kept,reverted:c.details_reverted||0,counts:c};
+      toast('success','Import undone — '+removed.toLocaleString()+' records removed'+(kept?', '+kept+' kept because they have newer work':''));
+      loadEngineerData();loadEngineerCustomers();_wizLoadBatches();render();
+    });
+  })();
+}
+function _wizUndoResultHtml(){
+  var u=wiz.undoResult;if(!u)return '';var c=u.counts;
+  return '<div style="padding:12px 14px;background:var(--bg);border-radius:10px;margin:12px 0" class="text-sm"><div class="fw-700">↩️ Import undone</div>'+
+    'Removed: '+(c.customers||0)+' customers · '+(c.jobs||0)+' jobs · '+(c.invoices||0)+' invoices · '+(c.certificates||0)+' certificates · '+(c.expenses||0)+' expenses'+
+    (u.reverted?'<br>Cleared '+u.reverted+' detail(s) the import had filled in on existing customers':'')+
+    (u.kept?'<br>Kept '+(c.kept_jobs||0)+' job(s) and '+(c.kept_customers||0)+' customer(s) because you have added new work to them':'')+'</div>';
 }
 
 // ===== M2: Moti analysis (only headings + masked samples leave the browser) =====
@@ -10874,12 +10858,15 @@ function renderWizard(){
       h+='<button class="btn btn-secondary" style="padding:14px;justify-content:flex-start" onclick="wiz.software=\''+s[0]+'\';wiz.step=\'upload\';render()">'+esc(s[1])+'</button>';
     });
     h+='</div>';
+    h+=_wizBatchesHtml();
   }else if(wiz.step==='upload'){
+    if(wiz.resumeOf)h+='<div style="padding:10px 12px;background:var(--warning-light);border-radius:10px;margin-bottom:12px" class="text-sm"><strong>Finishing your earlier import.</strong> Upload the same files again — rows that were already saved are recognised as "Already in HomeLinq" and skipped, so nothing is doubled.</div>';
     h+='<p class="text-sm text-muted mb-12">Upload the files you exported — customers, jobs, invoices, certificates or expenses. You can add several at once. CSV up to 100 MB or Excel up to 50 MB each.</p>';
     h+='<div style="border:2px dashed var(--primary);border-radius:var(--radius);padding:28px 20px;text-align:center;background:var(--primary-light);margin-bottom:14px;cursor:pointer" onclick="document.getElementById(\'wizFileInput\').click()">'+
       '<div style="font-size:40px;margin-bottom:8px">📁</div><div class="fw-700" style="color:var(--primary-dark)">Click to choose files</div>'+
       '<input type="file" id="wizFileInput" multiple accept=".csv,.txt,.tsv,.xlsx,.xlsm,.xls" style="display:none" onchange="wizAddFiles(this)"></div>'+
-      '<div class="text-sm text-muted" style="margin:-6px 0 12px">🔒 Your file is read on this device. Moti only sees the column headings and a few sample values with names, emails, phones and addresses hidden.</div>';
+      '<div class="text-sm text-muted" style="margin:-6px 0 8px">Coming from paper? Download a blank template: '+WIZ_ORDER.map(function(k){return '<a href="#" onclick="downloadTemplate(\''+k+'\');return false" style="color:var(--primary-dark);font-weight:700">'+IMPORT_TYPES[k].label+'</a>'}).join(' · ')+'</div>'+
+      '<div class="text-sm text-muted" style="margin:0 0 12px">🔒 Your file is read on this device. Moti only sees the column headings and a few sample values with names, emails, phones and addresses hidden.</div>';
     wiz.files.forEach(function(f){
       var st=f.status==='ready'?'<span style="color:var(--success)">✓ '+f.rows.length.toLocaleString()+' rows · looks like <strong>'+IMPORT_TYPES[f.type].label+'</strong></span>':
         f.status==='error'?'<span style="color:var(--danger)">'+esc(f.error)+'</span>':
@@ -10925,14 +10912,19 @@ function renderWizard(){
     h+='<div style="text-align:center;padding:20px 0"><div style="font-size:40px;margin-bottom:10px">⏳</div>'+
       '<div class="fw-800" id="wiz-prog">'+(p.file?esc(p.file)+': '+p.done+' / '+p.total:'Starting…')+'</div>'+
       '<div style="height:10px;background:var(--bg);border-radius:6px;overflow:hidden;margin-top:12px"><div id="wiz-bar" style="height:100%;width:'+(p.total?Math.round(p.done*100/p.total):0)+'%;background:var(--primary);transition:width .2s"></div></div>'+
-      '<div class="text-sm text-muted mt-8">Please keep this page open until it finishes.</div></div>';
+      (wiz.paused?'<div style="margin-top:14px;padding:12px;background:var(--warning-light);border-radius:10px"><div class="fw-700">📡 Connection lost</div><div class="text-sm">Your progress is saved. It will carry on by itself when you\'re back online, or tap Try again.</div><button class="btn btn-primary btn-sm mt-8" onclick="wizResumeImport()">Try again</button></div>':
+      '<div class="text-sm text-muted mt-8">Please keep this page open until it finishes. If the connection drops, it pauses and carries on where it stopped.</div>')+'</div>';
   }else if(wiz.step==='done'){
     var tot=0;wiz.results.forEach(function(r){tot+=r.imported+(r.updated||0)});
     h+='<div style="text-align:center;margin-bottom:12px"><div style="font-size:48px">'+(tot?'🎉':'⚠️')+'</div><div class="fw-800" style="font-size:20px">'+(tot?tot.toLocaleString()+' records imported or updated':'Nothing was imported')+'</div></div>';
     h+='<div class="table-wrap"><table style="width:100%;font-size:13px"><thead><tr><th>File</th><th>Type</th><th>Imported</th><th>Updated</th><th>Duplicates skipped</th><th>Couldn\'t import</th><th>Left out</th><th>Failed</th></tr></thead><tbody>'+
       wiz.results.map(function(r){return '<tr><td>'+esc(r.name)+'</td><td>'+IMPORT_TYPES[r.type].label+'</td><td class="fw-700">'+r.imported+'</td><td>'+(r.updated||0)+'</td><td>'+r.skipped+'</td><td>'+r.invalid+'</td><td>'+(r.excluded||0)+'</td><td style="color:'+(r.failed?'var(--danger)':'inherit')+'">'+r.failed+(r.error?' <span title="'+escAttr(r.error)+'">ⓘ</span>':'')+'</td></tr>'}).join('')+
       '</tbody></table></div>';
-    h+='<div class="flex gap-8 mt-16"><button class="btn btn-primary" onclick="closeImportWizard()">Done</button></div>';
+    var fr=[];wiz.results.forEach(function(r){(r.failedRows||[]).forEach(function(x){fr.push(r.name+' — row '+x.row+': '+x.error)})});
+    if(fr.length)h+='<div style="margin-top:12px;padding:10px 12px;background:var(--danger-light);border-radius:10px" class="text-sm"><div class="fw-700">Rows the database refused ('+fr.length+')</div>'+fr.slice(0,20).map(function(x){return '<div>'+esc(x)+'</div>'}).join('')+(fr.length>20?'<div>…and '+(fr.length-20)+' more</div>':'')+'</div>';
+    h+=_wizUndoResultHtml();
+    h+='<div class="flex gap-8 mt-16"><button class="btn btn-primary" onclick="closeImportWizard()">Done</button>'+
+      (tot&&!wiz.undoResult?'<button class="btn btn-secondary" '+(wiz.undoing?'disabled':'')+' onclick="wizUndoBatch(wiz.batchId)">'+(wiz.undoing?'Undoing…':'↩️ Undo this import')+'</button>':'')+'</div>';
   }
   h+='</div></div>';
   return h;
@@ -10974,94 +10966,6 @@ function downloadTemplate(type){
   toast('success','Template downloaded — fill it in and import!');
 }
 
-function _impReset(){importState={step:0,type:'',file:null,headers:[],rows:[],mapping:{},preview:[]};render()}
-function renderImportWizard(){
-  var closeBtn='<button style="background:none;border:none;font-size:18px;cursor:pointer" onclick="_impReset()">✕</button>';
-  if(importState.step===0){
-    var h='<div class="cascade-overlay" onclick="if(event.target===this){_impReset()}"><div class="cascade-panel">';
-    h+='<div class="flex-between mb-16"><div class="fw-800" style="font-size:18px">📥 Import Data</div>'+closeBtn+'</div>';
-    h+='<p class="text-sm text-muted mb-16">What type of data are you importing?</p>';
-    Object.keys(IMPORT_TYPES).forEach(function(k){
-      var t=IMPORT_TYPES[k];
-      h+='<div class="list-item" onclick="importState.type=\''+k+'\';importState.step=1;render()" style="border-radius:var(--radius);margin-bottom:8px;border:1px solid var(--border)"><div style="font-size:24px">'+t.icon+'</div><div class="list-info"><div class="list-name">'+t.label+'</div><div class="list-sub">'+t.fields.length+' fields</div></div><div style="color:var(--muted)">›</div></div>';
-    });
-    h+='</div></div>';
-    return h;
-  }
-  if(importState.step===1){
-    var t=IMPORT_TYPES[importState.type];
-    var h='<div class="cascade-overlay" onclick="if(event.target===this){_impReset()}"><div class="cascade-panel">';
-    h+='<div class="flex-between mb-16"><div class="fw-800" style="font-size:18px">'+t.icon+' Import '+t.label+'</div>'+closeBtn+'</div>';
-    h+='<p class="text-sm text-muted mb-16">Upload a CSV or Excel file exported from your current system. We\'ll match the columns for you.</p>';
-    h+='<div style="border:2px dashed var(--primary);border-radius:var(--radius);padding:40px 20px;text-align:center;background:var(--primary-light);margin-bottom:16px;cursor:pointer" onclick="document.getElementById(\'importFileInput\').click()">';
-    h+='<div style="font-size:48px;margin-bottom:12px">📁</div>';
-    h+='<div class="fw-700" style="color:var(--primary-dark)">Click to upload CSV or Excel (.xlsx)</div>';
-    h+='<div class="text-sm text-muted mt-8">Up to 20 MB · thousands of rows are fine</div>';
-    h+='<input type="file" id="importFileInput" accept=".csv,.txt,.tsv,.xlsx,.xlsm,.xls" style="display:none" onchange="handleImportFile(this)">';
-    h+='</div>';
-    h+='<div style="padding:12px;background:var(--bg);border-radius:var(--radius);margin-bottom:16px"><div class="text-sm fw-700 mb-8">Columns we look for:</div><div style="display:flex;gap:6px;flex-wrap:wrap">';
-    t.fields.forEach(function(f){var req=t.required.indexOf(f)!==-1;
-      h+='<span style="padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;background:'+(req?'var(--primary-light)':'var(--bg2)')+';color:'+(req?'var(--primary-dark)':'var(--muted)')+'">'+f+(req?' *':'')+'</span>'});
-    h+='</div></div>';
-    if(importState.type==='invoices')h+='<div class="text-sm" style="padding:10px 12px;background:#FFF8E1;border-radius:8px;margin-bottom:12px;color:#92400E">Imported invoices keep their original number (shown as IMP-…) and are <strong>never emailed or chased automatically</strong>.</div>';
-    if(importState.type==='certificates')h+='<div class="text-sm" style="padding:10px 12px;background:#FFF8E1;border-radius:8px;margin-bottom:12px;color:#92400E">Imported certificates are stored as <strong>records of the original engineer</strong> (name and Gas Safe number kept) — they are not re-issued under your name.</div>';
-    h+='<button class="btn btn-secondary btn-sm" onclick="downloadTemplate(\''+importState.type+'\')">📋 Download blank template</button>';
-    h+='<button class="btn btn-secondary btn-sm" style="margin-left:8px" onclick="importState.step=0;importState.type=\'\';render()">← Back</button>';
-    h+='</div></div>';
-    return h;
-  }
-  if(importState.step===2){
-    var t=IMPORT_TYPES[importState.type];
-    var h='<div class="cascade-overlay" onclick="if(event.target===this){_impReset()}"><div class="cascade-panel" style="max-width:680px">';
-    h+='<div class="flex-between mb-16"><div class="fw-800" style="font-size:18px">🔗 Match columns — '+importState.rows.length+' rows found</div>'+closeBtn+'</div>';
-    h+='<p class="text-sm text-muted mb-16">Check the matches below. Anything set to "Skip" is not imported.</p>';
-    t.fields.forEach(function(f){
-      var req=t.required.indexOf(f)!==-1;
-      h+='<div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border)">';
-      h+='<div style="min-width:130px;font-weight:700;font-size:13px">'+f+(req?' <span style="color:var(--danger)">*</span>':'')+'</div><div style="font-size:16px">←</div>';
-      h+='<select class="select" style="flex:1;padding:8px 12px" onchange="importState.mapping[\''+f+'\']=this.value"><option value="">— Skip —</option>';
-      importState.headers.forEach(function(col,ci){var sel=importState.mapping[f]===col?' selected':'';h+='<option value="'+escAttr(col)+'"'+sel+'>'+esc(col)+'</option>'});
-      h+='</select></div>';
-    });
-    if(importState.preview.length>0){
-      h+='<div class="mt-16 mb-16"><div class="fw-700 mb-8" style="font-size:13px">Preview (first '+importState.preview.length+' rows):</div>';
-      h+='<div style="overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius);max-height:200px;overflow-y:auto"><table style="font-size:11px;min-width:100%"><tr>';
-      importState.headers.slice(0,6).forEach(function(hd){h+='<th style="padding:6px 10px;white-space:nowrap">'+esc(hd)+'</th>'});
-      h+='</tr>';
-      importState.preview.forEach(function(row){h+='<tr>';importState.headers.slice(0,6).forEach(function(hd){h+='<td style="padding:6px 10px;white-space:nowrap">'+esc(row[hd]!==undefined&&row[hd]!==null&&String(row[hd])!==''?String(row[hd]).substring(0,30):'—')+'</td>'});h+='</tr>'});
-      h+='</table></div></div>';
-    }
-    h+='<div class="text-sm text-muted">Duplicates are skipped automatically (same email, phone, or name + postcode for customers; same number for invoices).</div>';
-    h+='<div style="display:flex;gap:8px;margin-top:16px"><button class="btn btn-primary" onclick="executeImport()">✅ Import '+importState.rows.length+' '+t.label+'</button>';
-    h+='<button class="btn btn-secondary" onclick="importState.step=1;render()">← Back</button></div>';
-    h+='</div></div>';
-    return h;
-  }
-  if(importState.step===4){
-    var pct=importState.total?Math.round((importState.done||0)*100/importState.total):0;
-    return '<div class="cascade-overlay"><div class="cascade-panel" style="text-align:center"><div style="font-size:40px;margin-bottom:12px">⏳</div>'+
-      '<div class="fw-800" style="font-size:18px;margin-bottom:8px" id="imp-progress">Importing '+(importState.done||0)+' / '+importState.total+'…</div>'+
-      '<div style="height:10px;background:var(--bg);border-radius:6px;overflow:hidden"><div id="imp-bar" style="height:100%;width:'+pct+'%;background:var(--primary);transition:width .2s"></div></div>'+
-      '<div class="text-sm text-muted mt-8">Please keep this page open until it finishes.</div></div></div>';
-  }
-  if(importState.step===3){
-    var t=IMPORT_TYPES[importState.type]||{label:'records',icon:'✅'};
-    var lbl=t.label.toLowerCase();
-    var h='<div class="cascade-overlay" onclick="if(event.target===this){_impReset()}"><div class="cascade-panel" style="text-align:center">';
-    h+='<div style="font-size:56px;margin-bottom:12px">'+(importState.imported?'🎉':'⚠️')+'</div>';
-    h+='<div class="fw-800" style="font-size:22px;margin-bottom:12px">'+(importState.imported?'Import complete':'Nothing was imported')+'</div>';
-    h+='<div style="text-align:left;max-width:320px;margin:0 auto 16px">'+
-      '<div class="breakdown-row"><div>✅ Imported</div><div class="fw-800">'+(importState.imported||0)+'</div></div>'+
-      '<div class="breakdown-row"><div>↩️ Duplicates skipped</div><div>'+(importState.skipped||0)+'</div></div>'+
-      '<div class="breakdown-row"><div>⚠️ Rows missing required details</div><div>'+(importState.invalid||0)+'</div></div>'+
-      (importState.failed?'<div class="breakdown-row"><div>❌ Failed to save</div><div style="color:var(--danger)">'+importState.failed+'</div></div>':'')+
-      '<div class="breakdown-row total"><div>Rows in file</div><div>'+(importState.total||0)+'</div></div></div>';
-    if(importState.errors&&importState.errors.length)h+='<div class="text-sm" style="color:var(--danger);margin-bottom:12px">'+esc(importState.errors[0])+'</div>';
-    h+='<button class="btn btn-primary" onclick="_impReset()">Done</button></div></div>';
-    return h;
-  }
-  return '';
-}
 
 function pgSettings(){
   var e=S.engineer;
@@ -11160,8 +11064,7 @@ function pgSettings(){
     '<button class="btn btn-danger" onclick="confirmDeleteAccount()">Delete My Account</button></div></div></div>'+
     '<div style="margin-top:24px;padding:20px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);text-align:center">'+
     '<button class="btn btn-lg" onclick="doSignOut()" style="background:rgba(239,68,68,.1);color:#EF4444;border:2px solid #EF4444;padding:14px 48px;font-size:16px;font-weight:700;border-radius:12px;width:100%;max-width:320px">🚪 Sign Out</button>'+
-    '<div style="font-size:12px;color:var(--muted);margin-top:8px">Signed in as '+(S.engineer.email||'')+'</div></div>'+
-    (importState.step>0?renderImportWizard():'');
+    '<div style="font-size:12px;color:var(--muted);margin-top:8px">Signed in as '+(S.engineer.email||'')+'</div></div>';
 }
 
 // ===== PWA SHORTCUT DETECTION =====
@@ -11930,6 +11833,20 @@ checkStripeReturn();
       showPasswordResetForm();
     }, 500);
   }
+})();
+
+// app.html#import (link from the Moti home-screen app): open the import wizard once the engineer is signed in
+(function() {
+  if (window.location.hash !== '#import') return;
+  var tries = 0;
+  var t = setInterval(function() {
+    tries++;
+    if (currentUser && S && S.engineer && S.screen !== 'login') {
+      clearInterval(t);
+      try { history.replaceState(null, '', window.location.pathname + window.location.search); } catch (e) {}
+      window.motiOpenImport();
+    } else if (tries > 120) { clearInterval(t); }
+  }, 500);
 })();
 </script>
 <script src="moti/config.js"></script>

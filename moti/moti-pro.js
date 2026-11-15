@@ -83,6 +83,12 @@
       + ".mtw-input input{flex:1;background:#0E0F13;border:1px solid #2C2F39;border-radius:10px;color:#F4F4F0;font-family:inherit;font-size:14px;padding:10px 12px}"
       + ".mtw-input input:focus{outline:none;border-color:#D4F500}"
       + ".mtw-input button{background:#D4F500;border:none;border-radius:10px;width:42px;cursor:pointer;color:#15170a;font-size:17px;font-weight:700}"
+      + ".mtw-input .mtw-att{background:#2C2F39;color:#F4F4F0;font-size:17px;font-weight:400}"
+      + ".mtw-input .mtw-att:hover{background:#3A3E4B}"
+      + ".mtw-imp{align-self:flex-start;max-width:88%;background:#212430;border:1px solid #D4F500;border-radius:12px;padding:11px 12px;font-size:13px;color:#F4F4F0}"
+      + ".mtw-imp .mtw-cl{font-weight:700;margin-bottom:4px;color:#D4F500}"
+      + ".mtw-imp button{margin:8px 6px 0 0;border-radius:9px;padding:7px 11px;font-family:inherit;font-size:12.5px;font-weight:700;cursor:pointer;border:1px solid #D4F500;background:#D4F500;color:#15170a}"
+      + ".mtw-imp button.mtw-sec{background:transparent;color:#D4F500}"
       + ".mtw-svg .mtw-eye{transform-box:fill-box;transform-origin:center;animation:mtwblink 5.4s infinite}"
       + ".mtw-svg .mtw-eye2{animation-delay:.06s}"
       + "@keyframes mtwblink{0%,94%,100%{transform:scaleY(1)}97%{transform:scaleY(.12)}}";
@@ -107,7 +113,30 @@
       '<circle cx="24" cy="76" r="2.5" fill="#D4F500"/><circle cx="116" cy="76" r="2.5" fill="#D4F500"/></svg>';
   }
 
-  var fab, panel, bodyEl, chipsEl, inputEl, started = false, busy = false;
+  var fab, panel, bodyEl, chipsEl, inputEl, fileEl, attEl, started = false, busy = false;
+  var IMPORT_INTENT = /\b(import(s|ing|ed)?\b|migrat\w*|switch(ing)? (over|from)|mov(e|ing) (over|across|from)|bring (over|across|in) my|upload (my )?(file|csv|spreadsheet|export|data|records|customers))/i;
+
+  /* 📎 Import: files go straight into HomeLinq's import wizard, where Moti reads them with the engineer */
+  function chooseImportFiles() {
+    if (userRole === "customer") { addMsg("Importing files is for HomeLinq Pro engineers.", "bot"); return; }
+    if (typeof window.motiOpenImport !== "function") {
+      addMsg("You can import your data inside HomeLinq Pro - open the app and tap the paperclip in my chat there.", "bot");
+      return;
+    }
+    fileEl.click();
+  }
+  function addImportCard() {
+    if (userRole === "customer" || typeof window.motiOpenImport !== "function") { return; }
+    var card = document.createElement("div");
+    card.className = "mtw-imp";
+    card.innerHTML = '<div class="mtw-cl">Bring your data into HomeLinq</div>' +
+      '<div>Attach the files you exported (CSV or Excel, several at once). I\'ll work out what each one is and talk it through with you - you review every row before anything is saved, and you can undo it afterwards.</div>' +
+      '<button type="button" class="mtw-pick">&#128206; Choose files</button><button type="button" class="mtw-sec mtw-open">Open import wizard</button>';
+    card.querySelector(".mtw-pick").addEventListener("click", function () { chooseImportFiles(); });
+    card.querySelector(".mtw-open").addEventListener("click", function () { close(); window.motiOpenImport(); });
+    bodyEl.appendChild(card);
+    bodyEl.scrollTop = bodyEl.scrollHeight;
+  }
 
   function build() {
     fab = document.createElement("button");
@@ -124,13 +153,28 @@
       '<div><div class="mtw-nm">Moti</div><div class="mtw-sub"><span class="mtw-dot"></span> Your HomeLinq Pro assistant</div></div>' +
       '<button class="mtw-x" aria-label="Close">&times;</button></div>' +
       '<div class="mtw-body"></div><div class="mtw-chips"></div>' +
-      '<form class="mtw-input"><input type="text" placeholder="Ask Moti about your jobs, invoices..." autocomplete="off" aria-label="Message"/>' +
+      '<form class="mtw-input"><button type="button" class="mtw-att" aria-label="Import your data from files" title="Import your data (CSV or Excel files)">&#128206;</button>' +
+      '<input type="file" class="mtw-file" multiple accept=".csv,.txt,.tsv,.xlsx,.xlsm,.xls" style="display:none"/>' +
+      '<input type="text" class="mtw-text" placeholder="Ask Moti about your jobs, invoices..." autocomplete="off" aria-label="Message"/>' +
       '<button type="submit" aria-label="Send">&#8593;</button></form>';
     document.body.appendChild(panel);
 
     bodyEl = panel.querySelector(".mtw-body");
     chipsEl = panel.querySelector(".mtw-chips");
-    inputEl = panel.querySelector(".mtw-input input");
+    inputEl = panel.querySelector(".mtw-input .mtw-text");
+    fileEl = panel.querySelector(".mtw-file");
+    attEl = panel.querySelector(".mtw-att");
+    attEl.addEventListener("click", function () { chooseImportFiles(); });
+    fileEl.addEventListener("change", function () {
+      var arr = [];
+      for (var i = 0; i < fileEl.files.length; i++) { arr.push(fileEl.files[i]); }
+      fileEl.value = "";
+      if (!arr.length) { return; }
+      if (typeof window.motiOpenImport === "function") {
+        close();
+        window.motiOpenImport(arr);
+      }
+    });
 
     makeDraggable(fab);
     panel.querySelector(".mtw-x").addEventListener("click", close);
@@ -246,6 +290,7 @@
             .then(function (cRows) {
               userRole = "customer";
               STARTERS = STARTERS_CUST;
+              if (attEl) { attEl.style.display = "none"; }
               var custName = (cRows && cRows[0] && cRows[0].full_name) ? String(cRows[0].full_name).split(" ")[0] : "";
               updateSubtitle("Your HomeLinq assistant");
               addMsg(custName ? ("Hi " + custName + " - " + GREETING_CUSTOMER) : ("Hi - " + GREETING_CUSTOMER), "bot");
@@ -353,6 +398,7 @@
         var reply = d.reply || "";
         convo.push({ role: "user", content: text });
         if (reply) { addMsg(reply, "bot"); convo.push({ role: "assistant", content: reply }); }
+        if (d.open_import || (userRole === "engineer" && IMPORT_INTENT.test(text))) { addImportCard(); }
         if (d.proposal) { addConfirmCard(d.proposal, token); }
         else { renderChips(); }
       })

@@ -1,4 +1,4 @@
-// moti-import v2 — Moti helps engineers move their records into HomeLinq.
+// moti-import v3 — Moti helps engineers move their records into HomeLinq.
 // Moti never receives the full file: only column headings, column PROFILES computed on the engineer's
 // device (fill rates, types, ranges, non-personal value counts) and a few masked sample rows.
 // actions: analyse (one file, first pass) · converse (whole-import conversation) · save_template
@@ -31,7 +31,8 @@ const VALUE_TARGETS: Record<string, Record<string, string[]>> = {
 };
 const IMPORTER_RULES = [
   "How the HomeLinq importer behaves: files are imported in the order customers → jobs → invoices → certificates → expenses.",
-  "Duplicates (same customer email/phone/name, same invoice number, same certificate number) are skipped automatically.",
+  "After this Check step comes Review: every row is checked against the files and the engineer's existing HomeLinq records. Rows that can't be imported are listed with the reason and can be edited there; duplicates (same customer email/phone/name+postcode, same invoice or certificate number, same job or expense details) are shown and the engineer chooses Skip (the default), Fill in missing details (customers only, never overwrites) or Import anyway; totals and date ranges are shown to compare with the old system.",
+  "After importing, the engineer can Undo the whole import, and an import that stopped part-way can be finished later by uploading the same files again.",
   "Imported invoices are stored as history (numbered IMP-<original number>) and are NEVER emailed or chased.",
   "Imported certificates are kept as read-only records of the ORIGINAL engineer (their name, Gas Safe number, date, certificate number).",
   "Jobs, invoices and certificates are attached to customers by name/email, so they need a customer name column (or a link to the customers file).",

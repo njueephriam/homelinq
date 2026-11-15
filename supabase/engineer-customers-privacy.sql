@@ -123,3 +123,15 @@ begin
   return v;
 end $$;
 revoke execute on function public.bump_moti_import_usage(uuid) from public, anon, authenticated;
+
+-- ===== M4 (2026-11-15): import undo + auto-created customers tagged with the import =====
+-- Applied live as migration "m4_import_undo_and_auto_customer_batch_tag":
+--  * trg_auto_engineer_customer(): when an imported job/invoice/certificate auto-creates a customer in the same
+--    transaction (created_at = now()), the customer gets the same import_batch_id.
+--  * indexes on invoices/mileage_log/reminders/reviews/job_expenses (job_id).
+--  * undo_import_batch(p_batch uuid) returns jsonb — owner or service role only; deletes up to 5,000 rows per call
+--    (client calls again while done=false): invoices, certificates, expenses, jobs without newer work, customers
+--    without newer work; then reverts "fill in missing details" values recorded in import_batches.progress.fills
+--    (only where the value is unchanged) and marks the batch 'undone'. Granted to authenticated, revoked from anon.
+-- Tested in a rolled-back transaction: removes imported + auto-created rows, keeps a job with a later invoice,
+-- reverts a filled phone, blocks other users.

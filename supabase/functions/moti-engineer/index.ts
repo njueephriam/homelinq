@@ -2,7 +2,10 @@
 // Moti — operational AI assistant for HomeLinq Pro engineers.
 // Acts AS the logged-in engineer (their JWT); RLS scopes everything.
 // Read tools run instantly; write tools return a proposal to confirm.
+// v17: emails are sent with the engineer's own login (send-email requires an approved engineer)
+// v18: import help — Moti can show an "Open import wizard" button (open_import signal); the chat 📎 opens the wizard
 // Secret required: ANTHROPIC_API_KEY
+// Optional secrets for push: VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT
 // ============================================================
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -37,6 +40,8 @@ const READ_TOOLS = [
     input_schema: { type: "object", properties: { search: { type: "string" }, limit: { type: "number" } } } },
   { name: "financial_summary", description: "Totals of paid and outstanding invoices, expenses and mileage between two dates (YYYY-MM-DD).",
     input_schema: { type: "object", properties: { from_date: { type: "string" }, to_date: { type: "string" } }, required: ["from_date","to_date"] } },
+  { name: "open_import_wizard", description: "Show the engineer a button in this chat that opens HomeLinq's import wizard, to bring in customers, jobs, invoices, certificates and expenses from another system or spreadsheet. Use it whenever they want to import, migrate, move over from another platform or upload their records. Call it together with your reply.",
+    input_schema: { type: "object", properties: {} } },
 ];
 
 const WRITE_TOOLS = [
@@ -107,18 +112,20 @@ async function runRead(sb: any, name: string, input: any) {
   return { error: "unknown read tool" };
 }
 
-async function sendEmail(payload: any): Promise<boolean> {
+// Sends with the engineer's own login so send-email can confirm they are an approved engineer
+async function sendEmail(payload: any, token: string): Promise<boolean> {
   try {
     const r = await fetch(SUPABASE_URL + "/functions/v1/send-email", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "apikey": ANON, "Authorization": "Bearer " + ANON },
+      headers: { "Content-Type": "application/json", "apikey": ANON, "Authorization": "Bearer " + token },
       body: JSON.stringify(payload),
     });
+    if (!r.ok) console.error("send-email failed:", r.status, await r.text());
     return r.ok;
   } catch (_e) { return false; }
 }
 
-async function runWrite(sb: any, engineerId: string, engName: string, name: string, input: any) {
+async function runWrite(sb: any, engineerId: string, engName: string, token: string, name: string, input: any) {
   try {
     if (name === "create_invoice") {
       const { data, error } = await sb.from("invoices").insert({ engineer_id: engineerId, customer_name: input.customer_name, customer_email: input.customer_email || null, description: input.description, amount: input.amount, vat: 0, total: input.amount, status: "unpaid", due_date: input.due_date || null }).select("id,invoice_number,customer_name,total,status").single();
@@ -128,8 +135,8 @@ async function runWrite(sb: any, engineerId: string, engName: string, name: stri
       const { data: inv, error: ie } = await sb.from("invoices").select("*").eq("id", input.invoice_id).single();
       if (ie || !inv) return { error: "I couldn't find that invoice." };
       if (!inv.customer_email) return { error: "That invoice has no customer email saved, so I can't send it. Add the email to the invoice first." };
-      const ok = await sendEmail({ to: inv.customer_email, subject: "Invoice " + (inv.invoice_number || "") + " from " + engName, type: "invoice",
-        data: { invoice_id: inv.invoice_number || inv.id, engineer_name: engName, customer_name: inv.customer_name, amount: inv.amount, total: inv.total, description: inv.description, due_date: inv.due_date, payment_link: inv.payment_link } });
+      const ok = await sendEmail({ to: inv.customer_email, subject: "Invoice " + (inv.invoice_number || "") + " from " + engName, type: "invoice", from_name: engName,
+        data: { invoice_id: inv.invoice_number || inv.id, engineer_name: engName, customer_name: inv.customer_name, amount: inv.amount, total: inv.total, vat: inv.vat, vat_inclusive: Number(inv.vat || 0) > 0, description: inv.description, due_date: inv.due_date } }, token);
       if (!ok) return { error: "The invoice email didn't go through just then. Please try again shortly." };
       await sb.from("invoices").update({ sent_date: new Date().toISOString() }).eq("id", inv.id);
       return { sent: "invoice", to: inv.customer_email, customer: inv.customer_name, total: inv.total };
@@ -139,9 +146,8 @@ async function runWrite(sb: any, engineerId: string, engName: string, name: stri
       if (ie || !inv) return { error: "I couldn't find that invoice." };
       if (inv.status === "paid") return { error: "That invoice is already marked as paid — no need to chase it." };
       if (!inv.customer_email) return { error: "That invoice has no customer email saved, so I can't send a reminder." };
-      const msg = "Just a friendly reminder that invoice " + (inv.invoice_number || "") + " for £" + inv.total + " is still outstanding." + (inv.payment_link ? " You can pay securely here: " + inv.payment_link : " Please get in touch to arrange payment.");
-      const ok = await sendEmail({ to: inv.customer_email, subject: "Payment reminder — invoice " + (inv.invoice_number || ""), type: "generic",
-        data: { subject: "A friendly payment reminder", message: msg, engineer_name: engName } });
+      const ok = await sendEmail({ to: inv.customer_email, subject: "Payment reminder — invoice " + (inv.invoice_number || ""), type: "invoice_reminder", from_name: engName,
+        data: { invoice_id: inv.invoice_number || "", engineer_name: engName, customer_name: inv.customer_name, description: inv.description, total: inv.total } }, token);
       if (!ok) return { error: "The reminder didn't go through just then. Please try again shortly." };
       const n = Number(inv.chase_count || 0) + 1;
       await sb.from("invoices").update({ chase_count: n, last_chase_date: new Date().toISOString() }).eq("id", inv.id);
@@ -189,7 +195,6 @@ function summarise(tool: string, input: any): string {
   return "Carry out this action";
 }
 
-// ---- Web push: tell the engineer their task is done ---------
 function pushMessageFor(tool: string, r: any): string {
   if (tool === "create_invoice") return "Invoice created for " + (r.customer_name || "your customer") + (r.total != null ? " — £" + r.total : "");
   if (tool === "send_invoice") return "Invoice emailed to " + (r.customer || "your customer") + (r.total != null ? " (£" + r.total + ")" : "");
@@ -208,7 +213,6 @@ async function sendPush(sb: any, title: string, bodyText: string): Promise<void>
   try {
     const { data } = await sb.from("push_subscriptions").select("id,subscription");
     if (!data || !data.length) return;
-    // Loaded lazily and guarded — a push failure must never break the action.
     const mod: any = await import("npm:web-push@3.6.7");
     const webpush: any = mod.default || mod;
     webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC, VAPID_PRIVATE);
@@ -251,7 +255,7 @@ Deno.serve(async (req: Request) => {
 
     if (body.confirmAction && body.confirmAction.tool) {
       if (!WRITE_NAMES.has(body.confirmAction.tool)) return json({ error: "Unknown action." }, 400);
-      const result = await runWrite(sb, engineerId, engName, body.confirmAction.tool, body.confirmAction.input || {});
+      const result: any = await runWrite(sb, engineerId, engName, token, body.confirmAction.tool, body.confirmAction.input || {});
       if (result.error) return json({ done: false, message: "That didn't go through: " + result.error });
       await sendPush(sb, "Moti — task done", pushMessageFor(body.confirmAction.tool, result));
       return json({ done: true, message: "Done.", result });
@@ -265,7 +269,7 @@ Deno.serve(async (req: Request) => {
       "Today is " + today + ". All money is in GBP (use the £ sign).",
       "Use the tools to look up the engineer's real jobs, invoices, quotes, finances, reminders, CP12 certificates and boiler passports. Never guess figures or invent data — if you need data, call a tool.",
       "You can create invoices, email invoices to customers, and send polite payment-chase reminders — offer these naturally when they would help.",
-      "MIGRATION: if the engineer is new or mentions coming from another platform (Commusoft, Joblogic, ServiceM8, Tradify, BigChange and the like), warmly let them know HomeLinq can import their existing customers, jobs, invoices, certificates and expenses — they export a CSV from their old platform and upload it via the import option in HomeLinq Pro, and HomeLinq auto-maps the data. Offer this help to anyone getting started.",
+      "IMPORTING DATA: when the engineer wants to bring their records over from another platform (Commusoft, Gas Engineer Software, Tradify, Joblogic, ServiceM8, BigChange) or from spreadsheets, call open_import_wizard so a button appears, and explain briefly: they export their customers, jobs, invoices, certificates and expenses as CSV or Excel from the old system, then tap the paperclip in this chat (or Settings → Import Data → Start import) and attach the files — several at once is fine. Inside the import, you (Moti) read the files with them: you work out which system and what each file is, match the columns, spot problems and link invoices and jobs to the right customers, and they approve every change. Then they review every row (problems, duplicates, totals) before anything is saved; old invoices are never emailed or chased; imported certificates keep the original engineer's details; and they can undo an import afterwards. Customers' personal details stay on their device — you only see column headings and patterns. You cannot read files inside this chat itself — always point to the import.",
       "For anything that CHANGES data or sends an email, just call the matching tool. The system automatically pauses and asks " + firstName + " to confirm before it commits — so you do NOT need to ask 'shall I?' yourself, and never claim something is done unless a tool result confirms it.",
       "IMPORTANT: You CANNOT accept jobs from the marketplace — there is deliberately no tool for that. Accepting marketplace work must always be the engineer's own decision. If they ask you to, explain warmly that they need to accept it themselves in the Marketplace section of HomeLinq Pro — but you are happy to help with everything once a job is theirs.",
       "Be warm, brief and plain-spoken. British English. Keep replies short; when listing things, keep them tidy and scannable.",
@@ -287,6 +291,9 @@ Deno.serve(async (req: Request) => {
 
       if (ai.stop_reason !== "tool_use") {
         return json({ reply: textPart || "I'm not sure how to help with that one." });
+      }
+      if (content.some((b: any) => b.type === "tool_use" && b.name === "open_import_wizard")) {
+        return json({ reply: textPart || "Happy to help you bring your data over. Tap the button below (or the paperclip) and attach the files you exported from your old system — I'll go through them with you, and you'll check every row before anything is saved.", open_import: true });
       }
       const writeBlock = content.find((b: any) => b.type === "tool_use" && WRITE_NAMES.has(b.name));
       if (writeBlock) {
