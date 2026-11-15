@@ -92,3 +92,13 @@ create policy "Engineers read customers they serve" on public.customers
 --  * auto-customer trigger now BEFORE INSERT and stores the link on the row
 --  * save_engineer_job(+p_engineer_customer_id), send_invoice(+items, vat_rate, link, due date, meta, paid status/method)
 --  * already-paid callout invoices now saved as paid (previously saved as unpaid)
+
+-- 15 Nov 2026 (0.2b, applied live): migration "import_batch_columns"
+--  * import_batch_id on jobs, invoices, cp12_certificates, general_expenses (+ indexes; engineer_customers already had it)
+--  App importer now: CSV + Excel, saves all 5 types in batches of 200, keeps phone zeros, UK dates,
+--  duplicate skipping, imported invoices as IMP-<original> (never emailed/chased), certificates kept as
+--  records of the original engineer, escaped file content in the preview.
+
+-- 15 Nov 2026 (Phase 1A-M1, applied live): migration "import_batches_and_templates"
+--  * import_batches (owner-only RLS, admin read): status, source_software, files, counts, progress
+--  * import_templates (shared column-matching templates; read by signed-in users; written by moti-import later)

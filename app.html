@@ -4143,7 +4143,8 @@ function saveNewCustomer(){
   var ini=n.split(' ').map(function(w){return w[0]}).join('').substring(0,2).toUpperCase();
   var cols=['teal','blue','warning','purple','teal'];
   var email=document.getElementById('nc-email').value||'';
-  var phone=document.getElementById('nc-phone').value||'';
+  var phone=_impPhone(document.getElementById('nc-phone').value||'');
+  var ncPostcode=document.getElementById('nc-postcode')?String(document.getElementById('nc-postcode').value||'').trim().toUpperCase():'';
   if(ncType==='company'){
     var contact=document.getElementById('nc-contact')?document.getElementById('nc-contact').value:'';
     var refP=document.getElementById('nc-refprefix')?document.getElementById('nc-refprefix').value.toUpperCase():'';
@@ -4157,7 +4158,7 @@ function saveNewCustomer(){
   }else{
     var addr=document.getElementById('nc-addr')?document.getElementById('nc-addr').value:'';
     var boiler=document.getElementById('nc-boiler')?document.getElementById('nc-boiler').value:'';
-    var newCust={id:nextCustId++,name:n,ini:ini,addr:addr,email:email,phone:phone,
+    var newCust={id:nextCustId++,name:n,ini:ini,addr:addr,postcode:ncPostcode,email:email,phone:phone,
       boiler:boiler,last:'New',next:'TBD',jobs:0,spent:0,c:cols[nextCustId%5],isCompany:false,hist:[]};
     customers.push(newCust);
     saveCustomerToSupabase(newCust);
@@ -7448,7 +7449,7 @@ function skipOnboarding(){
 // ===== RENDER =====
 function render(){var a=document.getElementById('app');if(S.screen==='login'&&!isPWA){a.innerHTML=pgLogin();return}if(S.screen==='engVerify'){a.innerHTML=pgEngVerify();return}if(S.screen==='login'&&isPWA&&currentUser){S.screen='jobsheet'}if(S.screen==='login'&&isPWA&&!currentUser){a.innerHTML=pgLogin();return}
   if(S.role==='customer'){a.innerHTML='<div class="cust-app">'+custTopbar()+'<div style="padding:64px 16px 84px;max-width:480px;margin:0 auto">'+page()+'</div>'+custBottomNav()+custMenuOverlay()+'</div>';scheduleOfflineSave();return}
-  a.innerHTML=mobileTop()+'<div class="app-shell">'+sidebar()+'<div class="main">'+stripeBanner()+page()+'</div></div>'+bottomNav();
+  a.innerHTML=mobileTop()+'<div class="app-shell">'+sidebar()+'<div class="main">'+stripeBanner()+page()+'</div></div>'+bottomNav()+(wiz.open?renderWizard():'');
   // Post-render hooks — sync minimal data to localStorage for standalone chat PWA (strip PII)
   try{var _sharedCusts=customers.map(function(c){return{id:c.id,name:c.name,boiler:c.boiler}});localStorage.setItem('homelinq_shared_data',JSON.stringify({engineer:{name:S.engineer.name,gasSafe:S.engineer.gasSafe,business:S.engineer.business},customers:_sharedCusts,faultChatLearned:faultChatLearned}))}catch(e){}
   scheduleOfflineSave();
@@ -8180,7 +8181,8 @@ function pgAddCustomer(){
     '<div class="grid-2"><div class="field"><div class="label">'+(isDirect?'Email':'Invoicing / Jobs Email')+'</div><input id="nc-email" class="input" type="email" placeholder="'+(isDirect?'e.g. sarah@gmail.com':'e.g. jobs@hometree.co.uk')+'"></div>'+
     '<div class="field"><div class="label">Phone</div><input id="nc-phone" class="input" type="tel" placeholder="'+(isDirect?'e.g. 07891 234567':'e.g. 020 3808 0202')+'"></div></div>'+
     (isDirect?
-      '<div class="field"><div class="label">Address</div><input id="nc-addr" class="input" placeholder="e.g. 42 Elm Road, Didsbury, M20 6RT" oninput="addrAutocomplete(this)"></div>'+
+      '<div class="field"><div class="label">Address</div><input id="nc-addr" class="input" placeholder="e.g. 42 Elm Road, Didsbury" oninput="addrAutocomplete(this)"></div>'+
+      '<div class="field"><div class="label">Postcode</div><input id="nc-postcode" class="input" placeholder="e.g. M20 6RT" style="text-transform:uppercase;max-width:200px"></div>'+
       '<div class="field"><div class="label">Boiler Model</div><input id="nc-boiler" class="input" placeholder="e.g. Worcester Bosch 30i"></div>'
     :
       '<div class="grid-2"><div class="field"><div class="label">Contact Person</div><input id="nc-contact" class="input" placeholder="e.g. Karen Mills — your point of contact"></div>'+
@@ -9812,84 +9814,458 @@ function getEngineerEarnings(){
 var importState={step:0,type:'',file:null,headers:[],rows:[],mapping:{},preview:[]};
 var IMPORT_TYPES={
   customers:{label:'Customers',icon:'👥',fields:['name','email','phone','address','postcode','company'],required:['name']},
-  jobs:{label:'Jobs',icon:'📋',fields:['date','customer','type','description','address','price','partsTotal','status','time'],required:['date','customer']},
-  invoices:{label:'Invoices',icon:'📄',fields:['customer','date','total','status','items','email'],required:['customer','total']},
-  certificates:{label:'Certificates',icon:'📜',fields:['certType','recipientName','recipientEmail','prop','date','expiry','result','recipientType'],required:['recipientName','prop']},
+  jobs:{label:'Jobs',icon:'📋',fields:['date','customer','email','phone','type','description','address','postcode','price','status','time','ref'],required:['date','customer']},
+  invoices:{label:'Invoices',icon:'📄',fields:['number','customer','email','date','dueDate','total','vat','status','items'],required:['customer','total']},
+  certificates:{label:'Certificates',icon:'📜',fields:['certNumber','certType','recipientName','recipientEmail','landlord','tenant','prop','date','expiry','result','engineerName','gasSafe','recipientType'],required:['prop']},
   expenses:{label:'Expenses',icon:'💸',fields:['date','amount','category','description','vendor'],required:['amount','description']}
 };
-
+var IMPORT_SYNONYMS={
+  name:['name','fullname','customername','client','clientname','customer','contactname'],
+  email:['email','emailaddress','e-mail','customeremail','clientemail'],
+  phone:['phone','telephone','tel','mobile','mobileno','phonenumber','contactnumber'],
+  address:['address','addressline1','street','address1','fulladdress','propertyaddress','siteaddress'],
+  postcode:['postcode','postalcode','zip','zipcode','post code'],
+  company:['company','companyname','business','organisation','organization'],
+  date:['date','jobdate','scheduleddate','invoicedate','issuedate','visitdate','expensedate'],
+  customer:['customer','customername','client','clientname','name','billto'],
+  type:['type','jobtype','service','servicetype','worktype'],
+  description:['description','desc','notes','details','work','jobdescription','memo'],
+  price:['price','amount','total','cost','charge','value'],
+  status:['status','jobstatus','invoicestatus','paid','state'],
+  time:['time','starttime','scheduledtime','appointmenttime'],
+  ref:['ref','reference','jobref','jobnumber','jobno','id'],
+  number:['number','invoicenumber','invoiceno','invno','invoiceref','invoiceid','reference'],
+  dueDate:['duedate','due','paymentdue','datedue'],
+  total:['total','amount','grandtotal','totalamount','invoicetotal','gross'],
+  vat:['vat','tax','vatamount','taxamount'],
+  items:['items','lineitems','products','lines'],
+  certNumber:['certnumber','certificatenumber','certno','certificateno','serial','recordnumber'],
+  certType:['certtype','certificatetype','type','recordtype'],
+  recipientName:['recipientname','recipient','customer','customername','name'],
+  recipientEmail:['recipientemail','email','customeremail','landlordemail'],
+  landlord:['landlord','landlordname','owner'],
+  tenant:['tenant','tenantname','occupier'],
+  prop:['prop','property','propertyaddress','address','siteaddress','installationaddress'],
+  expiry:['expiry','expirydate','nextdue','nextinspection','nextinspectiondate','renewaldate'],
+  result:['result','outcome','inspectionresult','pass'],
+  engineerName:['engineer','engineername','issuedby','inspector'],
+  gasSafe:['gassafe','gassafenumber','gassafereg','registrationnumber','gassafeid'],
+  recipientType:['recipienttype'],
+  amount:['amount','total','cost','value','net','price'],
+  category:['category','expensetype','type','hmrccategory'],
+  vendor:['vendor','supplier','merchant','payee','shop']
+};
+function _impNorm(h){return String(h||'').toLowerCase().replace(/[^a-z0-9]/g,'')}
+function _impAutoMap(type,headers){
+  var mapping={};var used={};
+  var fields=IMPORT_TYPES[type].fields;
+  fields.forEach(function(f){
+    var syn=(IMPORT_SYNONYMS[f]||[f]).map(_impNorm);
+    var best=null;
+    headers.forEach(function(h){if(best||used[h])return;var n=_impNorm(h);if(syn.indexOf(n)!==-1)best=h});
+    if(!best){headers.forEach(function(h){if(best||used[h])return;var n=_impNorm(h);for(var k=0;k<syn.length;k++){if(syn[k].length>3&&n.indexOf(syn[k])!==-1){best=h;break}}})}
+    if(best){mapping[f]=best;used[best]=true}
+  });
+  return mapping;
+}
+var _sheetJsLoading=false;
+function _loadSheetJS(cb){
+  if(window.XLSX){cb(null);return}
+  if(_sheetJsLoading){setTimeout(function(){_loadSheetJS(cb)},300);return}
+  _sheetJsLoading=true;
+  var sc=document.createElement('script');
+  sc.src='https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
+  sc.onload=function(){_sheetJsLoading=false;cb(null)};
+  sc.onerror=function(){_sheetJsLoading=false;cb('Could not load the Excel reader — check your connection, or save the file as CSV')};
+  document.head.appendChild(sc);
+}
+function _impSetRows(headers,rows,fileName){
+  headers=headers.filter(function(h){return h!==undefined&&h!==null&&String(h).trim()!==''}).map(function(h){return String(h).trim()});
+  rows=rows.filter(function(r){for(var k in r){if(r.hasOwnProperty(k)&&String(r[k]===null||r[k]===undefined?'':r[k]).trim()!=='')return true}return false});
+  if(!headers.length||!rows.length){toast('error','No rows found in '+fileName+' — is the first row the column headings?');return}
+  importState.headers=headers;
+  importState.rows=rows;
+  importState.mapping=_impAutoMap(importState.type,headers);
+  importState.preview=rows.slice(0,5);
+  importState.step=2;
+  render();
+}
 function handleImportFile(input){
-  var file=input.files[0];if(!file)return;
+  var file=input.files&&input.files[0];if(!file)return;
+  if(file.size>20*1024*1024){toast('error','File is too large (max 20 MB). Split it into smaller files.');return}
   importState.file=file;
-  var reader=new FileReader();
-  reader.onload=function(e){
-    var result=Papa.parse(e.target.result,{header:true,skipEmptyLines:true,dynamicTyping:true});
-    if(result.errors.length>0&&result.data.length===0){toast('error','Could not parse file. Make sure it is a CSV.');return}
-    importState.headers=result.meta.fields||[];
-    importState.rows=result.data;
-    // Auto-map columns
-    importState.mapping={};
-    var typeFields=IMPORT_TYPES[importState.type].fields;
-    typeFields.forEach(function(f){
-      var fl=f.toLowerCase();
-      importState.headers.forEach(function(h){
-        var hl=h.toLowerCase().replace(/[^a-z]/g,'');
-        if(hl===fl||hl.indexOf(fl)!==-1||(fl==='name'&&(hl.indexOf('name')!==-1||hl.indexOf('client')!==-1||hl.indexOf('customer')!==-1))||(fl==='phone'&&(hl.indexOf('phone')!==-1||hl.indexOf('mobile')!==-1||hl.indexOf('tel')!==-1))||(fl==='address'&&(hl.indexOf('address')!==-1||hl.indexOf('addr')!==-1))||(fl==='email'&&hl.indexOf('email')!==-1)||(fl==='postcode'&&(hl.indexOf('post')!==-1||hl.indexOf('zip')!==-1))||(fl==='total'&&(hl.indexOf('total')!==-1||hl.indexOf('amount')!==-1))||(fl==='date'&&hl.indexOf('date')!==-1)||(fl==='description'&&(hl.indexOf('desc')!==-1||hl.indexOf('note')!==-1))||(fl==='price'&&(hl.indexOf('price')!==-1||hl.indexOf('cost')!==-1||hl.indexOf('charge')!==-1))||(fl==='status'&&hl.indexOf('status')!==-1)||(fl==='category'&&(hl.indexOf('cat')!==-1||hl.indexOf('type')!==-1))||(fl==='vendor'&&(hl.indexOf('vendor')!==-1||hl.indexOf('supplier')!==-1))||(fl==='company'&&(hl.indexOf('company')!==-1||hl.indexOf('business')!==-1))){
-          if(!importState.mapping[f])importState.mapping[f]=h;
-        }
-      });
+  var name=String(file.name||'').toLowerCase();
+  var isExcel=/\.(xlsx|xlsm|xls)$/.test(name);
+  if(isExcel){
+    toast('info','Reading Excel file...');
+    _loadSheetJS(function(err){
+      if(err){toast('error',err);return}
+      var reader=new FileReader();
+      reader.onload=function(e){
+        try{
+          var wb=window.XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true});
+          var ws=wb.Sheets[wb.SheetNames[0]];
+          var rows=window.XLSX.utils.sheet_to_json(ws,{defval:'',raw:false,dateNF:'yyyy-mm-dd'});
+          var headers=rows.length?Object.keys(rows[0]):[];
+          _impSetRows(headers,rows,file.name);
+        }catch(ex){console.log('Excel parse error:',ex);toast('error','Could not read this Excel file — try saving it as CSV')}
+      };
+      reader.readAsArrayBuffer(file);
     });
-    importState.preview=importState.rows.slice(0,5);
-    importState.step=2;
+    return;
+  }
+  if(!/\.(csv|txt|tsv)$/.test(name)){toast('error','Please upload a CSV or Excel (.xlsx) file');return}
+  Papa.parse(file,{header:true,skipEmptyLines:'greedy',dynamicTyping:false,
+    complete:function(result){
+      if(result.errors&&result.errors.length&&!result.data.length){toast('error','Could not read this file. Make sure it is a CSV.');return}
+      _impSetRows(result.meta.fields||[],result.data||[],file.name);
+    },
+    error:function(){toast('error','Could not read this file')}
+  });
+}
+function _impStr(v){return v===undefined||v===null?'':String(v).trim()}
+function _impPhone(v){
+  var p=_impStr(v);if(!p)return '';
+  if(/^[0-9oO\s+()\-]+$/.test(p))p=p.replace(/[oO]/g,'0');
+  var digits=p.replace(/[^0-9]/g,'');
+  if(p.charAt(0)!=='+'&&p.charAt(0)!=='0'&&digits.length===10&&digits.charAt(0)==='7')p='0'+p;
+  if(p.charAt(0)!=='+'&&p.charAt(0)!=='0'&&digits.length===10&&(digits.charAt(0)==='1'||digits.charAt(0)==='2'))p='0'+p;
+  return p;
+}
+function _impPhoneKey(v){var d=_impPhone(v).replace(/[^0-9]/g,'');if(d.indexOf('44')===0)d='0'+d.substring(2);return d.length>=10?d:''}
+function _impMoney(v){var n=parseFloat(_impStr(v).replace(/[£$,\s]/g,''));return isNaN(n)?0:Math.round(n*100)/100}
+function _impDate(v){
+  var s=_impStr(v);if(!s)return null;
+  var m=/^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s);
+  if(m)return m[1]+'-'+('0'+m[2]).slice(-2)+'-'+('0'+m[3]).slice(-2);
+  m=/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})/.exec(s); // UK day/month/year
+  if(m){var y=m[3].length===2?'20'+m[3]:m[3];var d=parseInt(m[1],10),mo=parseInt(m[2],10);if(mo>12&&d<=12){var t=d;d=mo;mo=t}
+    if(mo>=1&&mo<=12&&d>=1&&d<=31)return y+'-'+('0'+mo).slice(-2)+'-'+('0'+d).slice(-2)}
+  var dt=new Date(s);if(!isNaN(dt.getTime()))return localDateKey(dt);
+  return null;
+}
+function _impJobStatus(v){var s=_impStr(v).toLowerCase();if(!s)return 'completed';if(s.indexOf('cancel')>-1)return 'cancelled';if(s.indexOf('progress')>-1||s.indexOf('started')>-1)return 'in_progress';if(s.indexOf('complet')>-1||s.indexOf('done')>-1||s.indexOf('finish')>-1||s.indexOf('closed')>-1)return 'completed';if(s.indexOf('book')>-1||s.indexOf('upcoming')>-1||s.indexOf('schedul')>-1||s.indexOf('open')>-1)return 'upcoming';return 'completed'}
+function _impInvStatus(v){var s=_impStr(v).toLowerCase();if(s==='paid'||s==='yes'||s==='true'||s.indexOf('paid in full')>-1||(s.indexOf('paid')>-1&&s.indexOf('unpaid')===-1&&s.indexOf('part')===-1))return 'paid';if(s.indexOf('cancel')>-1||s.indexOf('void')>-1)return 'cancelled';return 'unpaid'}
+function _impCertType(v){var s=_impStr(v).toLowerCase();if(s.indexOf('non')>-1||s.indexOf('commercial')>-1)return 'non_domestic';if(s.indexOf('oil')>-1)return 'oil';if(s.indexOf('warn')>-1||s.indexOf('advis')>-1)return 'warning';if(s.indexOf('commission')>-1)return 'commissioning';return 'domestic'}
+function _impChunks(arr,size){var out=[];for(var i=0;i<arr.length;i+=size)out.push(arr.slice(i,i+size));return out}
+function _impProgress(done,total,label){importState.done=done;importState.total=total;importState.progressLabel=label||'';var el=document.getElementById('imp-progress');if(el){el.innerHTML='Importing '+done+' / '+total+'…';var bar=document.getElementById('imp-bar');if(bar)bar.style.width=(total?Math.round(done*100/total):0)+'%'}}
+function _impInsertAll(table,records,cb){
+  var chunks=_impChunks(records,200);var ok=0,failed=0,errs=[];var i=0;
+  function next(){
+    if(i>=chunks.length){cb(ok,failed,errs);return}
+    var ch=chunks[i++];
+    sb.from(table).insert(ch).then(function(res){
+      if(res.error){failed+=ch.length;errs.push(res.error.message);console.log('Import batch error ('+table+'):',res.error.message)}
+      else{ok+=ch.length}
+      _impProgress(ok+failed,records.length);
+      next();
+    });
+  }
+  next();
+}
+function _impNewCtx(){
+  var ctx={seenE:{},seenP:{},seenNP:{},existingNums:{},existingCerts:{},today:localDateKey(new Date())};
+  customers.forEach(function(c){var e=_impStr(c.email).toLowerCase();if(e)ctx.seenE[e]=1;var pk=_impPhoneKey(c.phone);if(pk)ctx.seenP[pk]=1;ctx.seenNP[_impStr(c.name).toLowerCase()+'|'+_impStr(c.postcode).toLowerCase().replace(/\s/g,'')]=1});
+  invoices.forEach(function(i){ctx.existingNums[String(i.id).toUpperCase()]=1});
+  (cp12Certs||[]).forEach(function(c){ctx.existingCerts[String(c.id).toUpperCase()]=1});
+  return ctx;
+}
+// Turns mapped spreadsheet rows into database records. Shared by the wizard and the quick importer.
+function _impBuild(type,mapping,rows,batchId,ctx){
+  var uid=currentUser.id;
+  var get=function(row,f){var col=mapping[f];return col?row[col]:''};
+  var records=[];var skipped=0;var invalid=0;var tag=batchId.substring(0,6);
+  if(type==='customers'){
+    rows.forEach(function(row){
+      var name=_impStr(get(row,'name'));if(!name){invalid++;return}
+      var email=_impStr(get(row,'email'));var phone=_impPhone(get(row,'phone'));var pc=_impStr(get(row,'postcode')).toUpperCase();
+      var ek=email.toLowerCase(),pk=_impPhoneKey(phone),nk=name.toLowerCase()+'|'+pc.toLowerCase().replace(/\s/g,'');
+      if((ek&&ctx.seenE[ek])||(pk&&ctx.seenP[pk])||ctx.seenNP[nk]){skipped++;return}
+      if(ek)ctx.seenE[ek]=1;if(pk)ctx.seenP[pk]=1;ctx.seenNP[nk]=1;
+      var comp=_impStr(get(row,'company'));
+      records.push({engineer_id:uid,full_name:name,email:email,phone:phone,address:_impStr(get(row,'address')),postcode:pc,
+        is_company:!!comp&&comp.toLowerCase()===name.toLowerCase(),source:'import',import_batch_id:batchId});
+    });
+  }else if(type==='jobs'){
+    rows.forEach(function(row,ix){
+      var d=_impDate(get(row,'date'));var cust=_impStr(get(row,'customer'));if(!d||!cust){invalid++;return}
+      var ref=_impStr(get(row,'ref'));
+      records.push({engineer_id:uid,job_number:'IMP-'+(ref||tag+'-'+(ix+1)),scheduled_date:d,scheduled_time:_impStr(get(row,'time'))||'09:00',
+        customer_name:cust,customer_email:_impStr(get(row,'email')),customer_phone:_impPhone(get(row,'phone')),address:_impStr(get(row,'address')),postcode:_impStr(get(row,'postcode')).toUpperCase(),
+        description:[_impStr(get(row,'type')),_impStr(get(row,'description'))].filter(function(x){return x}).join(' — ')||'Imported job',
+        price:_impMoney(get(row,'price')),status:_impJobStatus(get(row,'status')),source:'direct',import_batch_id:batchId});
+    });
+  }else if(type==='invoices'){
+    rows.forEach(function(row,ix){
+      var cust=_impStr(get(row,'customer'));var total=_impMoney(get(row,'total'));if(!cust||!total){invalid++;return}
+      var orig=_impStr(get(row,'number'));
+      var num='IMP-'+(orig?orig.replace(/^IMP-/i,''):tag+'-'+(ix+1));
+      if(ctx.existingNums[num.toUpperCase()]){skipped++;return}
+      ctx.existingNums[num.toUpperCase()]=1;
+      var vat=_impMoney(get(row,'vat'));var st=_impInvStatus(get(row,'status'));var d=_impDate(get(row,'date'));
+      records.push({engineer_id:uid,invoice_number:num,customer_name:cust,customer_email:_impStr(get(row,'email')),
+        description:_impStr(get(row,'items'))||'Imported invoice',amount:Math.round((total-vat)*100)/100,vat:vat,total:total,status:st,
+        sent_date:d?d+'T12:00:00Z':null,due_date:_impDate(get(row,'dueDate')),paid_date:st==='paid'?(d?d+'T12:00:00Z':new Date().toISOString()):null,
+        chase_count:0,meta:{imported:true,originalNumber:orig},import_batch_id:batchId});
+    });
+  }else if(type==='certificates'){
+    var soon=localDateKey(new Date(Date.now()+60*86400000));
+    rows.forEach(function(row,ix){
+      var prop=_impStr(get(row,'prop'));if(!prop){invalid++;return}
+      var issue=_impDate(get(row,'date'));var exp=_impDate(get(row,'expiry'));
+      var status=!exp?'valid':(exp<ctx.today?'expired':(exp<soon?'expiring_soon':'valid'));
+      var orig=_impStr(get(row,'certNumber'));
+      var num='IMP-'+(orig||tag+'-'+(ix+1));
+      if(ctx.existingCerts[num.toUpperCase()]){skipped++;return}
+      ctx.existingCerts[num.toUpperCase()]=1;
+      var recip=_impStr(get(row,'recipientName'))||_impStr(get(row,'landlord'))||_impStr(get(row,'tenant'));
+      var res=_impStr(get(row,'result')).toUpperCase()||'PASS';
+      records.push({engineer_id:uid,certificate_number:num,cert_type:_impCertType(get(row,'certType')),
+        property_address:prop,landlord_name:_impStr(get(row,'landlord')),tenant_name:_impStr(get(row,'tenant')),landlord_email:_impStr(get(row,'recipientEmail'))||null,
+        issue_date:issue,expiry_date:exp,status:status,inspection_result:res,appliances:[],
+        engineer_name:_impStr(get(row,'engineerName')),gas_safe_number:_impStr(get(row,'gasSafe')),
+        data:{importedRecord:true,originalNumber:orig,originalEngineer:_impStr(get(row,'engineerName')),originalGasSafe:_impStr(get(row,'gasSafe')),
+          recipientName:recip,recipientEmail:_impStr(get(row,'recipientEmail')),recipientType:_impStr(get(row,'recipientType'))||'landlord',prop:prop,date:issue||'',expiry:exp||'',result:res,sent:false},
+        import_batch_id:batchId});
+    });
+  }else if(type==='expenses'){
+    rows.forEach(function(row){
+      var amt=_impMoney(get(row,'amount'));var desc=_impStr(get(row,'description'));if(!amt||!desc){invalid++;return}
+      var vendor=_impStr(get(row,'vendor'));var cat=_impStr(get(row,'category'));
+      records.push({engineer_id:uid,date:_impDate(get(row,'date'))||localDateKey(new Date()),description:desc+(vendor?' ('+vendor+')':''),amount:amt,
+        category:(cat||'other').toLowerCase(),category_label:cat||'Other',has_receipt:false,import_batch_id:batchId});
+    });
+  }
+  return {records:records,skipped:skipped,invalid:invalid};
+}
+var IMPORT_TABLES={customers:'engineer_customers',jobs:'jobs',invoices:'invoices',certificates:'cp12_certificates',expenses:'general_expenses'};
+function executeImport(){
+  if(!currentUser||!sb){toast('error','Please sign in first');return}
+  var type=importState.type,mapping=importState.mapping,rows=importState.rows;
+  var t=IMPORT_TYPES[type];
+  for(var r=0;r<t.required.length;r++){if(!mapping[t.required[r]]){toast('error','Please choose a column for "'+t.required[r]+'"');return}}
+  var batchId=genUUID();
+  var b=_impBuild(type,mapping,rows,batchId,_impNewCtx());
+  if(!b.records.length){importState={step:3,type:type,imported:0,total:rows.length,skipped:b.skipped,invalid:b.invalid,failed:0,errors:[]};render();return}
+  importState.step=4;importState.total=b.records.length;importState.done=0;render();
+  _impInsertAll(IMPORT_TABLES[type],b.records,function(ok,failed,errs){
+    importState={step:3,type:type,imported:ok,total:rows.length,skipped:b.skipped,invalid:b.invalid,failed:failed,errors:errs,batchId:batchId};
     render();
-  };
-  reader.readAsText(file);
+    if(ok>0){toast('success',ok+' '+IMPORT_TYPES[type].label.toLowerCase()+' imported');loadEngineerData();loadEngineerCustomers()}
+  });
 }
 
-function executeImport(){
-  var type=importState.type;
-  var mapping=importState.mapping;
-  var rows=importState.rows;
-  var imported=0;
-  rows.forEach(function(row){
-    var item={};
-    Object.keys(mapping).forEach(function(field){
-      var csvCol=mapping[field];
-      if(csvCol&&row[csvCol]!==undefined&&row[csvCol]!==null&&row[csvCol]!==''){
-        item[field]=row[csvCol];
-      }
+// ===== IMPORT WIZARD (Phase 1A) =====
+var WIZ_SOFTWARE=[['commusoft','Commusoft'],['gas_engineer_software','Gas Engineer Software'],['tradify','Tradify'],['joblogic','Joblogic'],['servicem8','ServiceM8'],['bigchange','BigChange'],['spreadsheet','Paper / Excel'],['unknown','Not sure']];
+var WIZ_ORDER=['customers','jobs','invoices','certificates','expenses'];
+var WIZ_MAX_CSV=100*1024*1024,WIZ_MAX_XLS=50*1024*1024;
+var wiz={open:false};
+function openImportWizard(){wiz={open:true,step:'software',software:'',files:[],batchId:null,results:[]};render()}
+function closeImportWizard(){if(wiz.step==='importing'){toast('warning','Please wait until the import finishes');return}wiz={open:false};render()}
+function _wizDetectType(headers){
+  var n=headers.map(_impNorm).join('|');
+  var score={customers:0,jobs:0,invoices:0,certificates:0,expenses:0};
+  function has(words,t,w){words.forEach(function(x){if(n.indexOf(x)!==-1)score[t]+=w})}
+  has(['invoice','invno','duedate','amountdue','balance','paiddate'],'invoices',3);
+  has(['total','vat','paid','status'],'invoices',1);
+  has(['certificate','certno','cp12','expiry','nextinspection','landlord','tenant','gassafe','appliance'],'certificates',3);
+  has(['jobdate','scheduled','appointment','jobtype','jobref','jobnumber','visit','engineer'],'jobs',3);
+  has(['date','description','price','time'],'jobs',1);
+  has(['expense','supplier','vendor','merchant','receipt','category'],'expenses',3);
+  has(['postcode','mobile','phone','email','address','company','clientname','customername'],'customers',1);
+  var best='customers',bs=-1;WIZ_ORDER.forEach(function(t){if(score[t]>bs){bs=score[t];best=t}});
+  return best;
+}
+function _wizParseFile(f){
+  var file=f.file;var name=String(file.name||'').toLowerCase();
+  var isExcel=/\.(xlsx|xlsm|xls)$/.test(name);
+  if(isExcel){
+    if(file.size>WIZ_MAX_XLS){f.status='error';f.error='Excel file too large (max 50 MB) — save it as CSV instead';render();return}
+    f.status='reading';render();
+    _loadSheetJS(function(err){
+      if(err){f.status='error';f.error=err;render();return}
+      var reader=new FileReader();
+      reader.onload=function(e){
+        try{
+          var wb=window.XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true});
+          var ws=wb.Sheets[wb.SheetNames[0]];
+          var rows=window.XLSX.utils.sheet_to_json(ws,{defval:'',raw:false,dateNF:'yyyy-mm-dd'});
+          _wizFileReady(f,rows.length?Object.keys(rows[0]):[],rows);
+        }catch(ex){console.log('Excel parse error:',ex);f.status='error';f.error='Could not read this Excel file — try saving it as CSV';render()}
+      };
+      reader.readAsArrayBuffer(file);
     });
-    if(type==='customers'){
-      if(!item.name)return;
-      var exists=customers.find(function(c){return c.name.toLowerCase()===String(item.name).toLowerCase()});
-      if(!exists){
-        var _impName=String(item.name);customers.push({id:'CUST-'+(nextCustId++),name:_impName,ini:_impName.split(' ').map(function(w){return w[0]}).join(''),email:item.email||'',phone:item.phone||'',addr:item.address||'',address:item.address||'',postcode:item.postcode||'',company:item.company||'',boiler:'—',last:'',next:'',jobs:0,spent:0,c:'teal',isCompany:!!item.company,hist:[]});customers[customers.length-1].source='import';saveCustomerToSupabase(customers[customers.length-1]);
-        imported++;
-      }
-    } else if(type==='jobs'){
-      if(!item.date||!item.customer)return;
-      var dateKey=String(item.date).substring(0,10);
-      if(!allJobs[dateKey])allJobs[dateKey]=[];
-      allJobs[dateKey].push({id:nextJobId++,customer:String(item.customer),type:item.type||'Imported Job',desc:item.description||'',address:item.address||'',price:parseFloat(item.price)||0,partsTotal:parseFloat(item.partsTotal)||0,status:item.status||'completed',time:item.time||'09:00',source:'import'});
-      imported++;
-    } else if(type==='invoices'){
-      if(!item.customer||!item.total)return;
-      invoices.push({id:'INV-'+(nextInvNum++),customer:String(item.customer),date:item.date||localDateKey(new Date()),total:parseFloat(item.total)||0,status:item.status||'unpaid',email:item.email||'',items:item.items||'Imported',source:'import'});
-      imported++;
-    } else if(type==='certificates'){
-      if(!item.recipientName&&!item.prop)return;
-      var certId=CERT_TYPES[item.certType]?CERT_TYPES[item.certType].prefix:item.certType||'CP12';
-      cp12Certs.push({id:certId+'-'+(cp12Certs.length+1).toString().padStart(3,'0'),certType:item.certType||'domestic',recipientName:item.recipientName||'',recipientEmail:item.recipientEmail||'',prop:item.prop||'',date:item.date||localDateKey(new Date()),expiry:item.expiry||'',result:item.result||'PASS',recipientType:item.recipientType||'tenant',appliances:[],sent:false,source:'import'});
-      imported++;
-    } else if(type==='expenses'){
-      if(!item.amount&&!item.description)return;
-      expenses.push({id:nextExpId++,date:item.date||localDateKey(new Date()),amount:parseFloat(item.amount)||0,category:item.category||'other',desc:item.description||'',vendor:item.vendor||'',source:'import'});
-      imported++;
-    }
+    return;
+  }
+  if(!/\.(csv|txt|tsv)$/.test(name)){f.status='error';f.error='Not a CSV or Excel file';render();return}
+  if(file.size>WIZ_MAX_CSV){f.status='error';f.error='File too large (max 100 MB)';render();return}
+  f.status='reading';f.readPct=0;render();
+  var rows=[];var fields=null;
+  Papa.parse(file,{header:true,skipEmptyLines:'greedy',dynamicTyping:false,chunkSize:1024*1024,
+    chunk:function(res){
+      if(!fields&&res.meta&&res.meta.fields)fields=res.meta.fields;
+      for(var k=0;k<res.data.length;k++)rows.push(res.data[k]);
+      f.readPct=file.size?Math.min(99,Math.round((res.meta.cursor||0)*100/file.size)):0;
+      var el=document.getElementById('wiz-read-'+f.id);if(el)el.textContent='Reading… '+f.readPct+'% ('+rows.length.toLocaleString()+' rows)';
+    },
+    complete:function(){_wizFileReady(f,fields||[],rows)},
+    error:function(){f.status='error';f.error='Could not read this file';render()}
   });
-  importState={step:3,type:type,imported:imported,total:rows.length};
+}
+function _wizFileReady(f,headers,rows){
+  headers=headers.filter(function(h){return h!==undefined&&h!==null&&String(h).trim()!==''}).map(function(h){return String(h).trim()});
+  rows=rows.filter(function(r){for(var k in r){if(r.hasOwnProperty(k)&&String(r[k]===null||r[k]===undefined?'':r[k]).trim()!=='')return true}return false});
+  if(!headers.length||!rows.length){f.status='error';f.error='No rows found — is the first row the column headings?';render();return}
+  f.headers=headers;f.rows=rows;f.type=_wizDetectType(headers);f.mapping=_impAutoMap(f.type,headers);f.status='ready';
   render();
-  toast('success',imported+' '+IMPORT_TYPES[type].label.toLowerCase()+' imported successfully!');
+}
+var _wizFileSeq=1;
+function wizAddFiles(input){
+  var list=input.files||[];
+  for(var i=0;i<list.length;i++){
+    var f={id:_wizFileSeq++,file:list[i],name:list[i].name,size:list[i].size,status:'queued',headers:[],rows:[],type:'customers',mapping:{}};
+    wiz.files.push(f);
+  }
+  input.value='';
+  render();
+  // read one at a time so the browser stays responsive
+  (function nextRead(){
+    var q=wiz.files.filter(function(x){return x.status==='queued'})[0];
+    if(!q)return;
+    _wizParseFile(q);
+    var wait=setInterval(function(){if(q.status!=='reading'&&q.status!=='queued'){clearInterval(wait);nextRead()}},300);
+  })();
+}
+function wizRemoveFile(id){wiz.files=wiz.files.filter(function(f){return f.id!==id});render()}
+function wizSetType(id,type){var f=wiz.files.find(function(x){return x.id===id});if(!f)return;f.type=type;f.mapping=_impAutoMap(type,f.headers);render()}
+function wizSetMap(id,field,col){var f=wiz.files.find(function(x){return x.id===id});if(f)f.mapping[field]=col}
+function _wizMissing(f){var t=IMPORT_TYPES[f.type];return t.required.filter(function(r){return !f.mapping[r]})}
+function _wizSample(f,col){if(!col)return '';for(var i=0;i<f.rows.length&&i<50;i++){var v=f.rows[i][col];if(v!==undefined&&v!==null&&String(v).trim()!=='')return String(v).substring(0,40)}return ''}
+function wizGoMap(){
+  if(!wiz.files.length){toast('warning','Add at least one file');return}
+  if(wiz.files.some(function(f){return f.status==='reading'||f.status==='queued'})){toast('warning','Still reading your files — one moment');return}
+  if(!wiz.files.some(function(f){return f.status==='ready'})){toast('error','None of the files could be read');return}
+  wiz.step='map';render();
+}
+function wizStartImport(){
+  var ready=wiz.files.filter(function(f){return f.status==='ready'});
+  for(var i=0;i<ready.length;i++){var miss=_wizMissing(ready[i]);if(miss.length){toast('error',ready[i].name+': choose a column for "'+miss[0]+'"');return}}
+  if(!currentUser||!sb){toast('error','Please sign in first');return}
+  ready.sort(function(a,b){return WIZ_ORDER.indexOf(a.type)-WIZ_ORDER.indexOf(b.type)});
+  wiz.batchId=genUUID();wiz.step='importing';wiz.results=[];wiz.progress={file:'',done:0,total:0};
+  render();
+  var filesMeta=ready.map(function(f){return {name:f.name,type:f.type,rows:f.rows.length}});
+  sb.from('import_batches').insert({id:wiz.batchId,engineer_id:currentUser.id,status:'importing',source_software:wiz.software||'unknown',files:filesMeta}).then(function(res){
+    if(res.error)console.log('import_batches insert error:',res.error.message);
+    var ctx=_impNewCtx();var idx=0;
+    function nextFile(){
+      if(idx>=ready.length){_wizFinish();return}
+      var f=ready[idx++];
+      var b=_impBuild(f.type,f.mapping,f.rows,wiz.batchId,ctx);
+      var r={name:f.name,type:f.type,rows:f.rows.length,imported:0,skipped:b.skipped,invalid:b.invalid,failed:0,error:''};
+      wiz.results.push(r);
+      if(!b.records.length){nextFile();return}
+      wiz.progress={file:f.name,done:0,total:b.records.length};
+      var chunks=_impChunks(b.records,200);var ci=0;
+      function nextChunk(){
+        if(ci>=chunks.length){nextFile();return}
+        var ch=chunks[ci++];var tries=0;
+        (function attempt(){
+          sb.from(IMPORT_TABLES[f.type]).insert(ch).then(function(res2){
+            if(res2.error&&tries<2){tries++;setTimeout(attempt,1500*tries);return}
+            if(res2.error){r.failed+=ch.length;r.error=res2.error.message;console.log('Import error:',res2.error.message)}else{r.imported+=ch.length}
+            wiz.progress.done+=ch.length;
+            var el=document.getElementById('wiz-prog');if(el)el.textContent=f.name+': '+wiz.progress.done.toLocaleString()+' / '+wiz.progress.total.toLocaleString();
+            var bar=document.getElementById('wiz-bar');if(bar)bar.style.width=Math.round(wiz.progress.done*100/wiz.progress.total)+'%';
+            nextChunk();
+          });
+        })();
+      }
+      nextChunk();
+    }
+    nextFile();
+  });
+}
+function _wizFinish(){
+  var counts={};wiz.results.forEach(function(r){counts[r.type]=(counts[r.type]||0)+r.imported});
+  var anyFail=wiz.results.some(function(r){return r.failed>0});
+  sb.from('import_batches').update({status:anyFail&&!wiz.results.some(function(r){return r.imported>0})?'failed':'done',counts:counts,finished_at:new Date().toISOString(),progress:{results:wiz.results}}).eq('id',wiz.batchId).then(function(){});
+  wiz.step='done';render();
+  if(wiz.results.some(function(r){return r.imported>0})){loadEngineerData();loadEngineerCustomers()}
+}
+
+function _wizSteps(cur){
+  var steps=[['software','Where from'],['upload','Upload'],['map','Check'],['importing','Import'],['done','Done']];
+  var ci=0;steps.forEach(function(s,i){if(s[0]===cur)ci=i});
+  return '<div style="display:flex;gap:4px;margin-bottom:16px">'+steps.map(function(s,i){
+    return '<div style="flex:1;text-align:center"><div style="height:4px;border-radius:2px;background:'+(i<=ci?'var(--primary)':'var(--border)')+'"></div><div style="font-size:10px;margin-top:4px;color:'+(i===ci?'var(--primary-dark)':'var(--muted)')+';font-weight:'+(i===ci?'700':'500')+'">'+s[1]+'</div></div>';
+  }).join('')+'</div>';
+}
+function renderWizard(){
+  if(!wiz.open)return '';
+  var close='<button style="background:none;border:none;font-size:18px;cursor:pointer" onclick="closeImportWizard()">✕</button>';
+  var h='<div class="cascade-overlay"><div class="cascade-panel" style="max-width:760px;max-height:92vh;overflow-y:auto">';
+  h+='<div class="flex-between mb-8"><div class="fw-800" style="font-size:18px">📥 Import your data</div>'+close+'</div>';
+  h+=_wizSteps(wiz.step);
+  if(wiz.step==='software'){
+    h+='<p class="text-sm text-muted mb-16">Which system are you moving from? This helps us read your files correctly.</p>';
+    h+='<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">';
+    WIZ_SOFTWARE.forEach(function(s){
+      h+='<button class="btn btn-secondary" style="padding:14px;justify-content:flex-start" onclick="wiz.software=\''+s[0]+'\';wiz.step=\'upload\';render()">'+esc(s[1])+'</button>';
+    });
+    h+='</div>';
+  }else if(wiz.step==='upload'){
+    h+='<p class="text-sm text-muted mb-12">Upload the files you exported — customers, jobs, invoices, certificates or expenses. You can add several at once. CSV up to 100 MB or Excel up to 50 MB each.</p>';
+    h+='<div style="border:2px dashed var(--primary);border-radius:var(--radius);padding:28px 20px;text-align:center;background:var(--primary-light);margin-bottom:14px;cursor:pointer" onclick="document.getElementById(\'wizFileInput\').click()">'+
+      '<div style="font-size:40px;margin-bottom:8px">📁</div><div class="fw-700" style="color:var(--primary-dark)">Click to choose files</div>'+
+      '<input type="file" id="wizFileInput" multiple accept=".csv,.txt,.tsv,.xlsx,.xlsm,.xls" style="display:none" onchange="wizAddFiles(this)"></div>';
+    wiz.files.forEach(function(f){
+      var st=f.status==='ready'?'<span style="color:var(--success)">✓ '+f.rows.length.toLocaleString()+' rows · looks like <strong>'+IMPORT_TYPES[f.type].label+'</strong></span>':
+        f.status==='error'?'<span style="color:var(--danger)">'+esc(f.error)+'</span>':
+        '<span id="wiz-read-'+f.id+'">'+(f.status==='queued'?'Waiting…':'Reading…')+'</span>';
+      h+='<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;margin-bottom:6px">'+
+        '<div style="font-size:20px">📄</div><div style="flex:1;min-width:0"><div class="fw-700" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(f.name)+'</div><div class="text-sm">'+st+'</div></div>'+
+        '<div class="text-sm text-muted">'+(f.size/1048576).toFixed(1)+' MB</div>'+
+        (f.status==='reading'?'':'<button class="btn btn-secondary btn-sm" onclick="wizRemoveFile('+f.id+')">✕</button>')+'</div>';
+    });
+    h+='<div class="flex gap-8 mt-16"><button class="btn btn-primary" onclick="wizGoMap()">Next →</button><button class="btn btn-secondary" onclick="wiz.step=\'software\';render()">← Back</button></div>';
+  }else if(wiz.step==='map'){
+    h+='<p class="text-sm text-muted mb-12">Check what each file contains and how its columns match. Sample values from your file are shown on the right.</p>';
+    wiz.files.filter(function(f){return f.status==='ready'}).forEach(function(f){
+      var t=IMPORT_TYPES[f.type];var miss=_wizMissing(f);
+      h+='<div style="border:1px solid '+(miss.length?'var(--danger)':'var(--border)')+';border-radius:12px;padding:14px;margin-bottom:12px">';
+      h+='<div class="flex-between" style="gap:8px;flex-wrap:wrap"><div class="fw-800">'+esc(f.name)+' <span class="text-sm text-muted">· '+f.rows.length.toLocaleString()+' rows</span></div>'+
+        '<select class="select" style="padding:6px 10px" onchange="wizSetType('+f.id+',this.value)">'+WIZ_ORDER.map(function(k){return '<option value="'+k+'"'+(k===f.type?' selected':'')+'>'+IMPORT_TYPES[k].icon+' '+IMPORT_TYPES[k].label+'</option>'}).join('')+'</select></div>';
+      h+=miss.length?'<div class="text-sm" style="color:var(--danger);margin:8px 0">Choose a column for: '+miss.join(', ')+'</div>':'<div class="text-sm" style="color:var(--success);margin:8px 0">✓ Required columns matched</div>';
+      t.fields.forEach(function(fd){
+        var req=t.required.indexOf(fd)!==-1;
+        h+='<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-top:1px solid var(--border)">'+
+          '<div style="width:120px;font-size:12px;font-weight:700">'+fd+(req?' <span style="color:var(--danger)">*</span>':'')+'</div>'+
+          '<select class="select" style="flex:1;padding:6px 10px;font-size:12px" onchange="wizSetMap('+f.id+',\''+fd+'\',this.value);render()"><option value="">— Skip —</option>'+
+          f.headers.map(function(col){return '<option value="'+escAttr(col)+'"'+(f.mapping[fd]===col?' selected':'')+'>'+esc(col)+'</option>'}).join('')+'</select>'+
+          '<div style="width:160px;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(_wizSample(f,f.mapping[fd]))+'</div></div>';
+      });
+      h+='</div>';
+    });
+    if(wiz.files.some(function(f){return f.status==='error'}))h+='<div class="text-sm" style="color:var(--danger);margin-bottom:8px">Files that could not be read will be left out.</div>';
+    h+='<div class="text-sm text-muted mb-8">Imported in this order: customers → jobs → invoices → certificates → expenses. Duplicates are skipped. Imported invoices are never emailed or chased automatically.</div>';
+    h+='<div class="flex gap-8 mt-8"><button class="btn btn-primary" onclick="wizStartImport()">✅ Import</button><button class="btn btn-secondary" onclick="wiz.step=\'upload\';render()">← Back</button></div>';
+  }else if(wiz.step==='importing'){
+    var p=wiz.progress||{done:0,total:0,file:''};
+    h+='<div style="text-align:center;padding:20px 0"><div style="font-size:40px;margin-bottom:10px">⏳</div>'+
+      '<div class="fw-800" id="wiz-prog">'+(p.file?esc(p.file)+': '+p.done+' / '+p.total:'Starting…')+'</div>'+
+      '<div style="height:10px;background:var(--bg);border-radius:6px;overflow:hidden;margin-top:12px"><div id="wiz-bar" style="height:100%;width:'+(p.total?Math.round(p.done*100/p.total):0)+'%;background:var(--primary);transition:width .2s"></div></div>'+
+      '<div class="text-sm text-muted mt-8">Please keep this page open until it finishes.</div></div>';
+  }else if(wiz.step==='done'){
+    var tot=0;wiz.results.forEach(function(r){tot+=r.imported});
+    h+='<div style="text-align:center;margin-bottom:12px"><div style="font-size:48px">'+(tot?'🎉':'⚠️')+'</div><div class="fw-800" style="font-size:20px">'+(tot?tot.toLocaleString()+' records imported':'Nothing was imported')+'</div></div>';
+    h+='<div class="table-wrap"><table style="width:100%;font-size:13px"><thead><tr><th>File</th><th>Type</th><th>Imported</th><th>Duplicates</th><th>Missing details</th><th>Failed</th></tr></thead><tbody>'+
+      wiz.results.map(function(r){return '<tr><td>'+esc(r.name)+'</td><td>'+IMPORT_TYPES[r.type].label+'</td><td class="fw-700">'+r.imported+'</td><td>'+r.skipped+'</td><td>'+r.invalid+'</td><td style="color:'+(r.failed?'var(--danger)':'inherit')+'">'+r.failed+(r.error?' <span title="'+escAttr(r.error)+'">ⓘ</span>':'')+'</td></tr>'}).join('')+
+      '</tbody></table></div>';
+    h+='<div class="flex gap-8 mt-16"><button class="btn btn-primary" onclick="closeImportWizard()">Done</button></div>';
+  }
+  h+='</div></div>';
+  return h;
 }
 
 function exportData(type){
@@ -9928,90 +10304,90 @@ function downloadTemplate(type){
   toast('success','Template downloaded — fill it in and import!');
 }
 
+function _impReset(){importState={step:0,type:'',file:null,headers:[],rows:[],mapping:{},preview:[]};render()}
 function renderImportWizard(){
+  var closeBtn='<button style="background:none;border:none;font-size:18px;cursor:pointer" onclick="_impReset()">✕</button>';
   if(importState.step===0){
-    // Step 1: Choose data type
-    var h='<div class="cascade-overlay" onclick="if(event.target===this){importState.step=0;importState.type=\'\';render()}"><div class="cascade-panel">';
-    h+='<div class="flex-between mb-16"><div class="fw-800" style="font-size:18px">📥 Import Data</div><button style="background:none;border:none;font-size:18px;cursor:pointer" onclick="importState.step=0;importState.type=\'\';render()">✕</button></div>';
+    var h='<div class="cascade-overlay" onclick="if(event.target===this){_impReset()}"><div class="cascade-panel">';
+    h+='<div class="flex-between mb-16"><div class="fw-800" style="font-size:18px">📥 Import Data</div>'+closeBtn+'</div>';
     h+='<p class="text-sm text-muted mb-16">What type of data are you importing?</p>';
     Object.keys(IMPORT_TYPES).forEach(function(k){
       var t=IMPORT_TYPES[k];
-      h+='<div class="list-item" onclick="importState.type=\''+k+'\';importState.step=1;render()" style="border-radius:var(--radius);margin-bottom:8px;border:1px solid var(--border)"><div style="font-size:24px">'+t.icon+'</div><div class="list-item-info"><div class="list-item-title">'+t.label+'</div><div class="list-item-sub">Fields: '+t.fields.join(', ')+'</div></div><div style="color:var(--primary);font-weight:700">→</div></div>';
+      h+='<div class="list-item" onclick="importState.type=\''+k+'\';importState.step=1;render()" style="border-radius:var(--radius);margin-bottom:8px;border:1px solid var(--border)"><div style="font-size:24px">'+t.icon+'</div><div class="list-info"><div class="list-name">'+t.label+'</div><div class="list-sub">'+t.fields.length+' fields</div></div><div style="color:var(--muted)">›</div></div>';
     });
     h+='</div></div>';
     return h;
   }
   if(importState.step===1){
-    // Step 2: Upload file
     var t=IMPORT_TYPES[importState.type];
-    var h='<div class="cascade-overlay" onclick="if(event.target===this){importState.step=0;render()}"><div class="cascade-panel">';
-    h+='<div class="flex-between mb-16"><div class="fw-800" style="font-size:18px">'+t.icon+' Import '+t.label+'</div><button style="background:none;border:none;font-size:18px;cursor:pointer" onclick="importState.step=0;render()">✕</button></div>';
-    h+='<p class="text-sm text-muted mb-16">Upload a CSV file exported from your current system. We\'ll match the columns automatically.</p>';
+    var h='<div class="cascade-overlay" onclick="if(event.target===this){_impReset()}"><div class="cascade-panel">';
+    h+='<div class="flex-between mb-16"><div class="fw-800" style="font-size:18px">'+t.icon+' Import '+t.label+'</div>'+closeBtn+'</div>';
+    h+='<p class="text-sm text-muted mb-16">Upload a CSV or Excel file exported from your current system. We\'ll match the columns for you.</p>';
     h+='<div style="border:2px dashed var(--primary);border-radius:var(--radius);padding:40px 20px;text-align:center;background:var(--primary-light);margin-bottom:16px;cursor:pointer" onclick="document.getElementById(\'importFileInput\').click()">';
     h+='<div style="font-size:48px;margin-bottom:12px">📁</div>';
-    h+='<div class="fw-700" style="color:var(--primary-dark)">Click to upload CSV file</div>';
-    h+='<div class="text-sm text-muted mt-8">or drag and drop</div>';
-    h+='<input type="file" id="importFileInput" accept=".csv,.txt" style="display:none" onchange="handleImportFile(this)">';
+    h+='<div class="fw-700" style="color:var(--primary-dark)">Click to upload CSV or Excel (.xlsx)</div>';
+    h+='<div class="text-sm text-muted mt-8">Up to 20 MB · thousands of rows are fine</div>';
+    h+='<input type="file" id="importFileInput" accept=".csv,.txt,.tsv,.xlsx,.xlsm,.xls" style="display:none" onchange="handleImportFile(this)">';
     h+='</div>';
-    h+='<div style="padding:12px;background:var(--bg);border-radius:var(--radius);margin-bottom:16px">';
-    h+='<div class="text-sm fw-700 mb-8">Expected columns:</div>';
-    h+='<div style="display:flex;gap:6px;flex-wrap:wrap">';
-    t.fields.forEach(function(f){
-      var req=t.required.indexOf(f)!==-1;
-      h+='<span style="padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;background:'+(req?'var(--primary-light)':'var(--bg2)')+';color:'+(req?'var(--primary-dark)':'var(--muted)')+'">'+f+(req?' *':'')+'</span>';
-    });
+    h+='<div style="padding:12px;background:var(--bg);border-radius:var(--radius);margin-bottom:16px"><div class="text-sm fw-700 mb-8">Columns we look for:</div><div style="display:flex;gap:6px;flex-wrap:wrap">';
+    t.fields.forEach(function(f){var req=t.required.indexOf(f)!==-1;
+      h+='<span style="padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;background:'+(req?'var(--primary-light)':'var(--bg2)')+';color:'+(req?'var(--primary-dark)':'var(--muted)')+'">'+f+(req?' *':'')+'</span>'});
     h+='</div></div>';
+    if(importState.type==='invoices')h+='<div class="text-sm" style="padding:10px 12px;background:#FFF8E1;border-radius:8px;margin-bottom:12px;color:#92400E">Imported invoices keep their original number (shown as IMP-…) and are <strong>never emailed or chased automatically</strong>.</div>';
+    if(importState.type==='certificates')h+='<div class="text-sm" style="padding:10px 12px;background:#FFF8E1;border-radius:8px;margin-bottom:12px;color:#92400E">Imported certificates are stored as <strong>records of the original engineer</strong> (name and Gas Safe number kept) — they are not re-issued under your name.</div>';
     h+='<button class="btn btn-secondary btn-sm" onclick="downloadTemplate(\''+importState.type+'\')">📋 Download blank template</button>';
     h+='<button class="btn btn-secondary btn-sm" style="margin-left:8px" onclick="importState.step=0;importState.type=\'\';render()">← Back</button>';
     h+='</div></div>';
     return h;
   }
   if(importState.step===2){
-    // Step 3: Column mapping + preview
     var t=IMPORT_TYPES[importState.type];
-    var h='<div class="cascade-overlay" onclick="if(event.target===this){importState.step=0;render()}"><div class="cascade-panel" style="max-width:640px">';
-    h+='<div class="flex-between mb-16"><div class="fw-800" style="font-size:18px">🔗 Map Columns — '+importState.rows.length+' rows found</div><button style="background:none;border:none;font-size:18px;cursor:pointer" onclick="importState.step=0;render()">✕</button></div>';
-    h+='<p class="text-sm text-muted mb-16">Match your CSV columns to HomeLinq fields. We\'ve auto-matched what we could.</p>';
+    var h='<div class="cascade-overlay" onclick="if(event.target===this){_impReset()}"><div class="cascade-panel" style="max-width:680px">';
+    h+='<div class="flex-between mb-16"><div class="fw-800" style="font-size:18px">🔗 Match columns — '+importState.rows.length+' rows found</div>'+closeBtn+'</div>';
+    h+='<p class="text-sm text-muted mb-16">Check the matches below. Anything set to "Skip" is not imported.</p>';
     t.fields.forEach(function(f){
       var req=t.required.indexOf(f)!==-1;
       h+='<div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border)">';
-      h+='<div style="min-width:120px;font-weight:700;font-size:13px">'+f+(req?' <span style="color:var(--danger)">*</span>':'')+'</div>';
-      h+='<div style="font-size:16px">←</div>';
-      h+='<select class="select" style="flex:1;padding:8px 12px" onchange="importState.mapping[\''+f+'\']=this.value">';
-      h+='<option value="">— Skip —</option>';
-      importState.headers.forEach(function(col){
-        var sel=importState.mapping[f]===col?' selected':'';
-        h+='<option value="'+col+'"'+sel+'>'+col+'</option>';
-      });
+      h+='<div style="min-width:130px;font-weight:700;font-size:13px">'+f+(req?' <span style="color:var(--danger)">*</span>':'')+'</div><div style="font-size:16px">←</div>';
+      h+='<select class="select" style="flex:1;padding:8px 12px" onchange="importState.mapping[\''+f+'\']=this.value"><option value="">— Skip —</option>';
+      importState.headers.forEach(function(col,ci){var sel=importState.mapping[f]===col?' selected':'';h+='<option value="'+escAttr(col)+'"'+sel+'>'+esc(col)+'</option>'});
       h+='</select></div>';
     });
-    // Preview
     if(importState.preview.length>0){
       h+='<div class="mt-16 mb-16"><div class="fw-700 mb-8" style="font-size:13px">Preview (first '+importState.preview.length+' rows):</div>';
       h+='<div style="overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius);max-height:200px;overflow-y:auto"><table style="font-size:11px;min-width:100%"><tr>';
-      importState.headers.slice(0,6).forEach(function(hd){h+='<th style="padding:6px 10px;white-space:nowrap">'+hd+'</th>'});
+      importState.headers.slice(0,6).forEach(function(hd){h+='<th style="padding:6px 10px;white-space:nowrap">'+esc(hd)+'</th>'});
       h+='</tr>';
-      importState.preview.forEach(function(row){
-        h+='<tr>';
-        importState.headers.slice(0,6).forEach(function(hd){h+='<td style="padding:6px 10px;white-space:nowrap">'+(row[hd]!==undefined&&row[hd]!==null?String(row[hd]).substring(0,30):'—')+'</td>'});
-        h+='</tr>';
-      });
+      importState.preview.forEach(function(row){h+='<tr>';importState.headers.slice(0,6).forEach(function(hd){h+='<td style="padding:6px 10px;white-space:nowrap">'+esc(row[hd]!==undefined&&row[hd]!==null&&String(row[hd])!==''?String(row[hd]).substring(0,30):'—')+'</td>'});h+='</tr>'});
       h+='</table></div></div>';
     }
+    h+='<div class="text-sm text-muted">Duplicates are skipped automatically (same email, phone, or name + postcode for customers; same number for invoices).</div>';
     h+='<div style="display:flex;gap:8px;margin-top:16px"><button class="btn btn-primary" onclick="executeImport()">✅ Import '+importState.rows.length+' '+t.label+'</button>';
     h+='<button class="btn btn-secondary" onclick="importState.step=1;render()">← Back</button></div>';
     h+='</div></div>';
     return h;
   }
+  if(importState.step===4){
+    var pct=importState.total?Math.round((importState.done||0)*100/importState.total):0;
+    return '<div class="cascade-overlay"><div class="cascade-panel" style="text-align:center"><div style="font-size:40px;margin-bottom:12px">⏳</div>'+
+      '<div class="fw-800" style="font-size:18px;margin-bottom:8px" id="imp-progress">Importing '+(importState.done||0)+' / '+importState.total+'…</div>'+
+      '<div style="height:10px;background:var(--bg);border-radius:6px;overflow:hidden"><div id="imp-bar" style="height:100%;width:'+pct+'%;background:var(--primary);transition:width .2s"></div></div>'+
+      '<div class="text-sm text-muted mt-8">Please keep this page open until it finishes.</div></div></div>';
+  }
   if(importState.step===3){
-    // Success
     var t=IMPORT_TYPES[importState.type]||{label:'records',icon:'✅'};
-    var h='<div class="cascade-overlay" onclick="if(event.target===this){importState={step:0,type:\'\',file:null,headers:[],rows:[],mapping:{},preview:[]};render()}"><div class="cascade-panel" style="text-align:center">';
-    h+='<div style="font-size:64px;margin-bottom:16px">🎉</div>';
-    h+='<div class="fw-800" style="font-size:22px;margin-bottom:8px">Import Complete!</div>';
-    h+='<div class="text-muted mb-16"><strong>'+importState.imported+'</strong> out of '+importState.total+' '+t.label.toLowerCase()+' imported successfully.</div>';
-    h+='<button class="btn btn-primary" onclick="importState={step:0,type:\'\',file:null,headers:[],rows:[],mapping:{},preview:[]};render()">Done</button>';
-    h+='</div></div>';
+    var lbl=t.label.toLowerCase();
+    var h='<div class="cascade-overlay" onclick="if(event.target===this){_impReset()}"><div class="cascade-panel" style="text-align:center">';
+    h+='<div style="font-size:56px;margin-bottom:12px">'+(importState.imported?'🎉':'⚠️')+'</div>';
+    h+='<div class="fw-800" style="font-size:22px;margin-bottom:12px">'+(importState.imported?'Import complete':'Nothing was imported')+'</div>';
+    h+='<div style="text-align:left;max-width:320px;margin:0 auto 16px">'+
+      '<div class="breakdown-row"><div>✅ Imported</div><div class="fw-800">'+(importState.imported||0)+'</div></div>'+
+      '<div class="breakdown-row"><div>↩️ Duplicates skipped</div><div>'+(importState.skipped||0)+'</div></div>'+
+      '<div class="breakdown-row"><div>⚠️ Rows missing required details</div><div>'+(importState.invalid||0)+'</div></div>'+
+      (importState.failed?'<div class="breakdown-row"><div>❌ Failed to save</div><div style="color:var(--danger)">'+importState.failed+'</div></div>':'')+
+      '<div class="breakdown-row total"><div>Rows in file</div><div>'+(importState.total||0)+'</div></div></div>';
+    if(importState.errors&&importState.errors.length)h+='<div class="text-sm" style="color:var(--danger);margin-bottom:12px">'+esc(importState.errors[0])+'</div>';
+    h+='<button class="btn btn-primary" onclick="_impReset()">Done</button></div></div>';
     return h;
   }
   return '';
@@ -10095,12 +10471,9 @@ function pgSettings(){
     '<div class="toggle-row"><div><div class="fw-700">Auto-record transactions</div><div class="text-sm text-muted">Every invoice becomes an accounting entry</div></div><button class="toggle on" onclick="this.classList.toggle(\'on\')"></button></div>'+
     '<div class="toggle-row"><div><div class="fw-700">Require approval before sending</div><div class="text-sm text-muted">Review every SMS/email first</div></div><button class="toggle on" onclick="this.classList.toggle(\'on\')"></button></div></div>'+
     '<div class="card mb-16" style="border:2px solid var(--primary)"><div class="card-title mb-16" style="color:var(--primary)">📥 Import Data — Switch to HomeLinq</div>'+
-    '<p class="text-sm text-muted mb-16">Bring your existing data from any platform. Export a CSV from your current system and import it here — we\'ll map the columns automatically.</p>'+
-    '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px">'+
-    Object.keys(IMPORT_TYPES).map(function(k){var t=IMPORT_TYPES[k];return '<button class="btn btn-secondary btn-sm" style="flex-direction:column;gap:4px;padding:12px" onclick="importState={step:0,type:\'\',file:null,headers:[],rows:[],mapping:{},preview:[]};importState.type=\''+k+'\';importState.step=1;render()"><div style="font-size:20px">'+t.icon+'</div><div style="font-size:11px">'+t.label+'</div></button>'}).join('')+
-    '</div>'+
-    '<div style="padding:10px 14px;background:var(--bg);border-radius:8px"><div style="font-size:12px;color:var(--muted)">💡 <strong>Coming from Commusoft, Joblogic, ServiceM8, Tradify, or BigChange?</strong> Export your data as CSV from their settings, then import here. Works with any platform that exports CSV.</div></div></div>'+
-    '<div class="card mb-16" style="border:2px solid var(--blue)"><div class="card-title mb-16" style="color:var(--blue)">📤 Export My Data</div>'+
+    '<p class="text-sm text-muted mb-16">Bring your customers, jobs, invoices, certificates and expenses from Commusoft, Gas Engineer Software, Tradify, Joblogic, ServiceM8, BigChange or any spreadsheet. CSV or Excel, several files at once.</p>'+
+    '<button class="btn btn-primary" onclick="openImportWizard()">📥 Start import</button></div>'+
+'<div class="card mb-16" style="border:2px solid var(--blue)"><div class="card-title mb-16" style="color:var(--blue)">📤 Export My Data</div>'+
     '<p class="text-sm text-muted mb-16">Your data is yours. Download everything as CSV anytime — no lock-in.</p>'+
     '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
     '<button class="btn btn-sm btn-secondary" onclick="exportData(\'customers\')">👥 Customers ('+customers.length+')</button>'+
