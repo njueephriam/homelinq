@@ -9934,12 +9934,12 @@ function _impPhone(v){
 }
 function _impPhoneKey(v){var d=_impPhone(v).replace(/[^0-9]/g,'');if(d.indexOf('44')===0)d='0'+d.substring(2);return d.length>=10?d:''}
 function _impMoney(v){var n=parseFloat(_impStr(v).replace(/[£$,\s]/g,''));return isNaN(n)?0:Math.round(n*100)/100}
-function _impDate(v){
+function _impDate(v,fmt){
   var s=_impStr(v);if(!s)return null;
   var m=/^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s);
   if(m)return m[1]+'-'+('0'+m[2]).slice(-2)+'-'+('0'+m[3]).slice(-2);
   m=/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})/.exec(s); // UK day/month/year
-  if(m){var y=m[3].length===2?'20'+m[3]:m[3];var d=parseInt(m[1],10),mo=parseInt(m[2],10);if(mo>12&&d<=12){var t=d;d=mo;mo=t}
+  if(m){var y=m[3].length===2?'20'+m[3]:m[3];var d=parseInt(m[1],10),mo=parseInt(m[2],10);if(fmt==='MDY'){var t0=d;d=mo;mo=t0}if(mo>12&&d<=12){var t=d;d=mo;mo=t}
     if(mo>=1&&mo<=12&&d>=1&&d<=31)return y+'-'+('0'+mo).slice(-2)+'-'+('0'+d).slice(-2)}
   var dt=new Date(s);if(!isNaN(dt.getTime()))return localDateKey(dt);
   return null;
@@ -9971,7 +9971,8 @@ function _impNewCtx(){
   return ctx;
 }
 // Turns mapped spreadsheet rows into database records. Shared by the wizard and the quick importer.
-function _impBuild(type,mapping,rows,batchId,ctx){
+function _impBuild(type,mapping,rows,batchId,ctx,opts){
+  var df=(opts&&opts.dateFormat)||null;
   var uid=currentUser.id;
   var get=function(row,f){var col=mapping[f];return col?row[col]:''};
   var records=[];var skipped=0;var invalid=0;var tag=batchId.substring(0,6);
@@ -9988,7 +9989,7 @@ function _impBuild(type,mapping,rows,batchId,ctx){
     });
   }else if(type==='jobs'){
     rows.forEach(function(row,ix){
-      var d=_impDate(get(row,'date'));var cust=_impStr(get(row,'customer'));if(!d||!cust){invalid++;return}
+      var d=_impDate(get(row,'date'),df);var cust=_impStr(get(row,'customer'));if(!d||!cust){invalid++;return}
       var ref=_impStr(get(row,'ref'));
       records.push({engineer_id:uid,job_number:'IMP-'+(ref||tag+'-'+(ix+1)),scheduled_date:d,scheduled_time:_impStr(get(row,'time'))||'09:00',
         customer_name:cust,customer_email:_impStr(get(row,'email')),customer_phone:_impPhone(get(row,'phone')),address:_impStr(get(row,'address')),postcode:_impStr(get(row,'postcode')).toUpperCase(),
@@ -10002,17 +10003,17 @@ function _impBuild(type,mapping,rows,batchId,ctx){
       var num='IMP-'+(orig?orig.replace(/^IMP-/i,''):tag+'-'+(ix+1));
       if(ctx.existingNums[num.toUpperCase()]){skipped++;return}
       ctx.existingNums[num.toUpperCase()]=1;
-      var vat=_impMoney(get(row,'vat'));var st=_impInvStatus(get(row,'status'));var d=_impDate(get(row,'date'));
+      var vat=_impMoney(get(row,'vat'));var st=_impInvStatus(get(row,'status'));var d=_impDate(get(row,'date'),df);
       records.push({engineer_id:uid,invoice_number:num,customer_name:cust,customer_email:_impStr(get(row,'email')),
         description:_impStr(get(row,'items'))||'Imported invoice',amount:Math.round((total-vat)*100)/100,vat:vat,total:total,status:st,
-        sent_date:d?d+'T12:00:00Z':null,due_date:_impDate(get(row,'dueDate')),paid_date:st==='paid'?(d?d+'T12:00:00Z':new Date().toISOString()):null,
+        sent_date:d?d+'T12:00:00Z':null,due_date:_impDate(get(row,'dueDate'),df),paid_date:st==='paid'?(d?d+'T12:00:00Z':new Date().toISOString()):null,
         chase_count:0,meta:{imported:true,originalNumber:orig},import_batch_id:batchId});
     });
   }else if(type==='certificates'){
     var soon=localDateKey(new Date(Date.now()+60*86400000));
     rows.forEach(function(row,ix){
       var prop=_impStr(get(row,'prop'));if(!prop){invalid++;return}
-      var issue=_impDate(get(row,'date'));var exp=_impDate(get(row,'expiry'));
+      var issue=_impDate(get(row,'date'),df);var exp=_impDate(get(row,'expiry'),df);
       var status=!exp?'valid':(exp<ctx.today?'expired':(exp<soon?'expiring_soon':'valid'));
       var orig=_impStr(get(row,'certNumber'));
       var num='IMP-'+(orig||tag+'-'+(ix+1));
@@ -10032,7 +10033,7 @@ function _impBuild(type,mapping,rows,batchId,ctx){
     rows.forEach(function(row){
       var amt=_impMoney(get(row,'amount'));var desc=_impStr(get(row,'description'));if(!amt||!desc){invalid++;return}
       var vendor=_impStr(get(row,'vendor'));var cat=_impStr(get(row,'category'));
-      records.push({engineer_id:uid,date:_impDate(get(row,'date'))||localDateKey(new Date()),description:desc+(vendor?' ('+vendor+')':''),amount:amt,
+      records.push({engineer_id:uid,date:_impDate(get(row,'date'),df)||localDateKey(new Date()),description:desc+(vendor?' ('+vendor+')':''),amount:amt,
         category:(cat||'other').toLowerCase(),category_label:cat||'Other',has_receipt:false,import_batch_id:batchId});
     });
   }
@@ -10118,6 +10119,7 @@ function _wizFileReady(f,headers,rows){
   if(!headers.length||!rows.length){f.status='error';f.error='No rows found — is the first row the column headings?';render();return}
   f.headers=headers;f.rows=rows;f.type=_wizDetectType(headers);f.mapping=_impAutoMap(f.type,headers);f.status='ready';
   render();
+  _wizAnalyse(f);
 }
 var _wizFileSeq=1;
 function wizAddFiles(input){
@@ -10137,7 +10139,7 @@ function wizAddFiles(input){
   })();
 }
 function wizRemoveFile(id){wiz.files=wiz.files.filter(function(f){return f.id!==id});render()}
-function wizSetType(id,type){var f=wiz.files.find(function(x){return x.id===id});if(!f)return;f.type=type;f.mapping=_impAutoMap(type,f.headers);render()}
+function wizSetType(id,type){var f=wiz.files.find(function(x){return x.id===id});if(!f)return;f.type=type;f.typeLocked=true;f.mapping=_impAutoMap(type,f.headers);render()}
 function wizSetMap(id,field,col){var f=wiz.files.find(function(x){return x.id===id});if(f)f.mapping[field]=col}
 function _wizMissing(f){var t=IMPORT_TYPES[f.type];return t.required.filter(function(r){return !f.mapping[r]})}
 function _wizSample(f,col){if(!col)return '';for(var i=0;i<f.rows.length&&i<50;i++){var v=f.rows[i][col];if(v!==undefined&&v!==null&&String(v).trim()!=='')return String(v).substring(0,40)}return ''}
@@ -10149,7 +10151,9 @@ function wizGoMap(){
 }
 function wizStartImport(){
   var ready=wiz.files.filter(function(f){return f.status==='ready'});
-  for(var i=0;i<ready.length;i++){var miss=_wizMissing(ready[i]);if(miss.length){toast('error',ready[i].name+': choose a column for "'+miss[0]+'"');return}}
+  for(var i=0;i<ready.length;i++){var miss=_wizMissing(ready[i]);if(miss.length){toast('error',ready[i].name+': choose a column for "'+miss[0]+'"');return}
+    if(ready[i].ai&&ready[i].ai.status==='loading'){toast('warning','Moti is still checking '+ready[i].name+' — one moment');return}
+    if(_wizUnanswered(ready[i])){toast('warning','Please answer Moti\'s question for '+ready[i].name);return}}
   if(!currentUser||!sb){toast('error','Please sign in first');return}
   ready.sort(function(a,b){return WIZ_ORDER.indexOf(a.type)-WIZ_ORDER.indexOf(b.type)});
   wiz.batchId=genUUID();wiz.step='importing';wiz.results=[];wiz.progress={file:'',done:0,total:0};
@@ -10161,8 +10165,9 @@ function wizStartImport(){
     function nextFile(){
       if(idx>=ready.length){_wizFinish();return}
       var f=ready[idx++];
-      var b=_impBuild(f.type,f.mapping,f.rows,wiz.batchId,ctx);
-      var r={name:f.name,type:f.type,rows:f.rows.length,imported:0,skipped:b.skipped,invalid:b.invalid,failed:0,error:''};
+      var b=_impBuild(f.type,f.mapping,f.rows,wiz.batchId,ctx,{dateFormat:f.dateFormat||null});
+      f._result=null;
+      var r={name:f.name,type:f.type,rows:f.rows.length,imported:0,skipped:b.skipped,invalid:b.invalid,failed:0,error:''};f._result=r;
       wiz.results.push(r);
       if(!b.records.length){nextFile();return}
       wiz.progress={file:f.name,done:0,total:b.records.length};
@@ -10191,8 +10196,88 @@ function _wizFinish(){
   var anyFail=wiz.results.some(function(r){return r.failed>0});
   sb.from('import_batches').update({status:anyFail&&!wiz.results.some(function(r){return r.imported>0})?'failed':'done',counts:counts,finished_at:new Date().toISOString(),progress:{results:wiz.results}}).eq('id',wiz.batchId).then(function(){});
   wiz.step='done';render();
+  // Confirmed formats become shared templates (column names only) so the next engineer's import is instant
+  wiz.files.forEach(function(f){if(f._result&&f._result.imported>0&&!f._result.failed&&!(f.ai&&f.ai.fromTemplate))_wizSaveTemplate(f)});
   if(wiz.results.some(function(r){return r.imported>0})){loadEngineerData();loadEngineerCustomers()}
 }
+
+// ===== M2: Moti analysis (only headings + masked samples leave the browser) =====
+var WIZ_PII_HEADERS=['name','email','mail','phone','mobile','tel','address','street','road','postcode','post','contact','tenant','landlord','customer','client','recipient','owner','occupier','town','city'];
+function _wizIsPiiHeader(h){var n=_impNorm(h);for(var i=0;i<WIZ_PII_HEADERS.length;i++){if(n.indexOf(WIZ_PII_HEADERS[i])!==-1)return true}return false}
+function _wizMaskValue(v,header){
+  var s=_impStr(v);if(!s)return '';
+  if(s.indexOf('@')>0){var at=s.indexOf('@');return s.charAt(0)+'***'+s.substring(at)}
+  var digits=s.replace(/[^0-9]/g,'');
+  if(digits.length>=7&&/^[0-9+()\s\-oO]+$/.test(s))return digits.substring(0,2)+'*** ***'+digits.substring(digits.length-3);
+  if(/^[A-Za-z]{1,2}[0-9][A-Za-z0-9]?\s*[0-9][A-Za-z]{2}$/.test(s))return s.replace(/\s*[0-9][A-Za-z]{2}$/,'')+' ***';
+  if(_wizIsPiiHeader(header))return s.split(/\s+/).map(function(w){return /^[0-9]+$/.test(w)?w:(w.charAt(0)+'***')}).join(' ');
+  return s.substring(0,40);
+}
+function _wizMaskedSamples(f){
+  var out=[];
+  for(var i=0;i<f.rows.length&&out.length<5;i++){
+    var r=f.rows[i];var o={};
+    f.headers.forEach(function(h){o[h]=_wizMaskValue(r[h],h)});
+    out.push(o);
+  }
+  return out;
+}
+function _wizAnalyse(f){
+  f.ai={status:'loading'};render();
+  sb.auth.getSession().then(function(sRes){
+    var token=(sRes.data&&sRes.data.session)?sRes.data.session.access_token:'';
+    fetch(STRIPE_EDGE_URL+'/moti-import',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token,'apikey':SUPABASE_KEY},
+      body:JSON.stringify({action:'analyse',software:wiz.software||'unknown',file_name:f.name,row_count:f.rows.length,headers:f.headers,samples:_wizMaskedSamples(f)})
+    }).then(function(r){return r.json()}).then(function(res){
+      if(!res||res.error){f.ai={status:'failed',error:(res&&res.error)||'Moti unavailable'};render();return}
+      if(!f.typeLocked&&res.record_type&&IMPORT_TYPES[res.record_type]&&res.record_type!==f.type){f.type=res.record_type;f.mapping=_impAutoMap(f.type,f.headers)}
+      if(res.record_type===f.type&&res.mapping){Object.keys(res.mapping).forEach(function(k){if(IMPORT_TYPES[f.type].fields.indexOf(k)!==-1&&f.headers.indexOf(res.mapping[k])!==-1)f.mapping[k]=res.mapping[k]})}
+      if(res.date_format&&res.date_format!=='unknown')f.dateFormat=res.date_format;
+      f.ai={status:'done',software:res.software,confidence:res.confidence,notes:res.notes||'',fromTemplate:!!res.from_template,questions:res.questions||[],answers:{}};
+      render();
+    }).catch(function(err){console.log('moti-import error:',err);f.ai={status:'failed',error:'Moti unavailable'};render()});
+  });
+}
+function wizAnswer(fid,qid,value){
+  var f=wiz.files.find(function(x){return x.id===fid});if(!f||!f.ai)return;
+  var q=(f.ai.questions||[]).find(function(x){return x.id===qid});if(!q)return;
+  f.ai.answers[qid]=value;
+  if(q.kind==='date_format')f.dateFormat=value;
+  if(q.kind==='mapping'&&q.field&&f.headers.indexOf(value)!==-1)f.mapping[q.field]=value;
+  render();
+}
+function _wizSaveTemplate(f){
+  sb.auth.getSession().then(function(sRes){
+    var token=(sRes.data&&sRes.data.session)?sRes.data.session.access_token:'';
+    fetch(STRIPE_EDGE_URL+'/moti-import',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token,'apikey':SUPABASE_KEY},
+      body:JSON.stringify({action:'save_template',software:(f.ai&&f.ai.software&&f.ai.software!=='unknown')?f.ai.software:(wiz.software||'unknown'),record_type:f.type,headers:f.headers,mapping:f.mapping,date_format:f.dateFormat||null})
+    }).then(function(r){return r.json()}).then(function(res){if(res&&res.saved)console.log('Import template saved for',f.name)}).catch(function(){});
+  });
+}
+var WIZ_SOFT_LABEL={};WIZ_SOFTWARE.forEach(function(s){WIZ_SOFT_LABEL[s[0]]=s[1]});
+function _wizAiBox(f){
+  if(!f.ai)return '';
+  if(f.ai.status==='loading')return '<div class="text-sm" style="padding:8px 10px;background:var(--primary-light);border-radius:8px;margin:8px 0">🤖 Moti is checking this file…</div>';
+  if(f.ai.status==='failed')return '<div class="text-sm" style="padding:8px 10px;background:var(--bg);border-radius:8px;margin:8px 0">🤖 Moti couldn\'t check this file ('+esc(f.ai.error||'')+') — standard matching used. Please check the columns below.</div>';
+  var h='<div style="padding:10px 12px;background:var(--primary-light);border-radius:8px;margin:8px 0">';
+  h+='<div class="text-sm fw-700" style="color:var(--primary-dark)">'+(f.ai.fromTemplate?'📚 Recognised a saved format':'🤖 Moti matched this file')+
+    (f.ai.software&&f.ai.software!=='unknown'?' · '+esc(WIZ_SOFT_LABEL[f.ai.software]||f.ai.software):'')+
+    (f.ai.confidence?' · '+Math.round(f.ai.confidence*100)+'% sure':'')+(f.dateFormat?' · dates '+({DMY:'day/month/year',MDY:'month/day/year',YMD:'year-month-day'}[f.dateFormat]||''):'')+'</div>';
+  if(f.ai.notes)h+='<div class="text-sm" style="margin-top:4px">'+esc(f.ai.notes)+'</div>';
+  (f.ai.questions||[]).forEach(function(q){
+    var ans=f.ai.answers[q.id];
+    h+='<div style="margin-top:10px;padding-top:8px;border-top:1px solid rgba(13,148,136,.2)"><div class="text-sm fw-700">❓ '+esc(q.text)+'</div>';
+    if(q.options&&q.options.length){
+      h+='<div class="flex gap-8" style="flex-wrap:wrap;margin-top:6px">'+q.options.map(function(o){
+        var on=ans===o.value;
+        return '<button class="btn '+(on?'btn-primary':'btn-secondary')+' btn-sm" onclick="wizAnswer('+f.id+',\''+q.id+'\',\''+escAttr(o.value).replace(/\\/g,'\\\\')+'\')">'+esc(o.label)+'</button>';
+      }).join('')+'</div>';
+    }
+    h+='</div>';
+  });
+  return h+'</div>';
+}
+function _wizUnanswered(f){if(!f.ai||f.ai.status!=='done')return 0;return (f.ai.questions||[]).filter(function(q){return q.kind!=='info'&&q.options&&q.options.length&&f.ai.answers[q.id]===undefined}).length}
 
 function _wizSteps(cur){
   var steps=[['software','Where from'],['upload','Upload'],['map','Check'],['importing','Import'],['done','Done']];
@@ -10218,7 +10303,8 @@ function renderWizard(){
     h+='<p class="text-sm text-muted mb-12">Upload the files you exported — customers, jobs, invoices, certificates or expenses. You can add several at once. CSV up to 100 MB or Excel up to 50 MB each.</p>';
     h+='<div style="border:2px dashed var(--primary);border-radius:var(--radius);padding:28px 20px;text-align:center;background:var(--primary-light);margin-bottom:14px;cursor:pointer" onclick="document.getElementById(\'wizFileInput\').click()">'+
       '<div style="font-size:40px;margin-bottom:8px">📁</div><div class="fw-700" style="color:var(--primary-dark)">Click to choose files</div>'+
-      '<input type="file" id="wizFileInput" multiple accept=".csv,.txt,.tsv,.xlsx,.xlsm,.xls" style="display:none" onchange="wizAddFiles(this)"></div>';
+      '<input type="file" id="wizFileInput" multiple accept=".csv,.txt,.tsv,.xlsx,.xlsm,.xls" style="display:none" onchange="wizAddFiles(this)"></div>'+
+      '<div class="text-sm text-muted" style="margin:-6px 0 12px">🔒 Your file is read on this device. Moti only sees the column headings and a few sample values with names, emails, phones and addresses hidden.</div>';
     wiz.files.forEach(function(f){
       var st=f.status==='ready'?'<span style="color:var(--success)">✓ '+f.rows.length.toLocaleString()+' rows · looks like <strong>'+IMPORT_TYPES[f.type].label+'</strong></span>':
         f.status==='error'?'<span style="color:var(--danger)">'+esc(f.error)+'</span>':
@@ -10236,6 +10322,7 @@ function renderWizard(){
       h+='<div style="border:1px solid '+(miss.length?'var(--danger)':'var(--border)')+';border-radius:12px;padding:14px;margin-bottom:12px">';
       h+='<div class="flex-between" style="gap:8px;flex-wrap:wrap"><div class="fw-800">'+esc(f.name)+' <span class="text-sm text-muted">· '+f.rows.length.toLocaleString()+' rows</span></div>'+
         '<select class="select" style="padding:6px 10px" onchange="wizSetType('+f.id+',this.value)">'+WIZ_ORDER.map(function(k){return '<option value="'+k+'"'+(k===f.type?' selected':'')+'>'+IMPORT_TYPES[k].icon+' '+IMPORT_TYPES[k].label+'</option>'}).join('')+'</select></div>';
+      h+=_wizAiBox(f);
       h+=miss.length?'<div class="text-sm" style="color:var(--danger);margin:8px 0">Choose a column for: '+miss.join(', ')+'</div>':'<div class="text-sm" style="color:var(--success);margin:8px 0">✓ Required columns matched</div>';
       t.fields.forEach(function(fd){
         var req=t.required.indexOf(fd)!==-1;
